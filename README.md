@@ -94,5 +94,3 @@ cmake --build .
 本项目采用 [MIT License](LICENSE.txt) 开源许可。
 
 ---
-
-**请将 `YourUsername` 替换成你自己的 GitHub 用户名！**
