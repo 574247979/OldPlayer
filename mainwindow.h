@@ -13,9 +13,11 @@
 #include <QListWidgetItem>
 #include <QCloseEvent>
 #include <QSystemTrayIcon>
+#include <QShowEvent>
 #include "playlistmanager.h"
 #include "playlistlistwidget.h"
 #include "songlistwidget.h"
+
 
 // 自定义 Slider 类，支持点击跳转
 class ClickableSlider : public QSlider {
@@ -43,11 +45,16 @@ protected:
     }
 };
 
-enum class PlaybackMode {
+enum class InListMode {
     Sequential,     // 顺序播放
-    ListLoop,       // 列表循环
-    SingleLoop,     // 单曲循环
     Random          // 随机播放
+};
+
+enum class CrossListMode {
+    Stop,           // 播完当前列表后停止
+    ListLoop,       // 循环当前列表
+    SingleLoop,     // 循环当前单曲
+    Advance         // 前进到下一个列表
 };
 
 class QSplitter;
@@ -60,8 +67,9 @@ public:
     ~MainWindow();
 
 protected:
-    // ↓↓↓ 3. 重写 closeEvent 函数声明 ↓↓↓
+    //closeEvent 函数声明
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     
 private slots:
     void onPlayPauseClicked();
@@ -69,7 +77,6 @@ private slots:
     void onNextClicked();
     void onPlaylistContextMenuRequested(const QPoint& pos);
     void onSongListContextMenuRequested(const QPoint& pos);
-    void onPlaybackModeClicked();
     void onAddSongsClicked();
     void onCreatePlaylistClicked();
     void onDeletePlaylistClicked();
@@ -79,13 +86,15 @@ private slots:
     void onFoldersDropped(const QList<QUrl>& urls);
     void onFilesDroppedToSongList(const QList<QUrl>& urls);
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
-    
+    void onShowFontSettings();
     void onPositionChanged(qint64 position);
     void onDurationChanged(qint64 duration);
     void onProgressSliderMoved(int position);
     void onVolumeChanged(int value);
     void onMediaStatusChanged(QMediaPlayer::MediaStatus status);
     void onMetaDataChanged();
+    void onInListModeClicked();
+    void onCrossListModeClicked();
     
 private:
     void setupUI();
@@ -94,17 +103,20 @@ private:
     void playSong(int index);
     void updatePlayPauseButton();
     void resetPlayerState();
-    void updatePlaybackModeButton(); // <--- 3. 新增用于更新模式按钮UI的函数
     void playNextSong();             // <--- 4. 新增一个处理“下一曲”逻辑的辅助函数
     void generateShuffledPlaylist();
+    void updateInListModeButton();
+    void updateCrossListModeButton();
+    bool m_isFirstShow;
     QString formatTime(qint64 milliseconds);
     
     // UI 组件
     QWidget* m_centralWidget;
+    QPushButton* m_inListModeBtn;   // 用于 顺序/随机
     QPushButton* m_playPauseBtn;
     QPushButton* m_previousBtn;
     QPushButton* m_nextBtn;
-    QPushButton* m_playbackModeBtn; // <--- 5. 新增播放模式按钮的成员变量
+    QPushButton* m_crossListModeBtn;  // 用于 列表循环/单曲循环/列表前进
     
     ClickableSlider* m_progressSlider;
     ClickableSlider* m_volumeSlider;
@@ -125,12 +137,16 @@ private:
     QSplitter* m_mainSplitter; // <--- 4. 将 Splitter 声明为成员变量
     PlaylistManager* m_playlistManager;
 
+    
+
     PlaylistListWidget* m_playlistListWidget;
     SongListWidget* m_songListWidget;
     
     int m_currentPlaylistIndex;
     int m_currentSongIndex;
-    PlaybackMode m_playbackMode; //新增用于存储当前播放模式的成员变量
+
+    InListMode m_inListMode;     // <-- 新的模式变量
+    CrossListMode m_crossListMode; // <-- 新的模式变量
 
 
     QList<int> m_shuffledIndices;      //用于存储打乱后的歌曲索引

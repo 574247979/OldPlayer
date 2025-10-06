@@ -18,8 +18,9 @@ int main(int argc, char *argv[]) {
     #ifdef Q_OS_WIN
     SetConsoleOutputCP(CP_UTF8);
     #endif
-    
-    // ↓↓↓ 添加深色主题样式表 ↓↓↓
+
+
+    //添加深色主题样式表
     QString qss = R"(
         QWidget {
             background-color: #2E3440;
@@ -66,17 +67,17 @@ int main(int argc, char *argv[]) {
         }
         QSlider::groove:horizontal {
             border: 1px solid #4C566A;
-            height: 4px;
+            height: 2px;
             background: #434C5E;
             margin: 2px 0;
-            border-radius: 2px;
+            border-radius: 1px;
         }
         QSlider::handle:horizontal {
             background: #88C0D0;
             border: 1px solid #88C0D0;
-            width: 14px;
-            margin: -6px 0;
-            border-radius: 7px;
+            width: 10px;
+            margin: -5px 0;
+            border-radius: 5px;
         }
         QLabel {
             color: #ECEFF4;

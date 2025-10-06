@@ -18,13 +18,19 @@
 #include <QSplitter>   //包含 QSplitter 的完整头文件
 #include <QAction>   // <--- 包含 QAction
 #include <QApplication> // <--- 包含 QApplication 以便调用 quit
+#include <QToolTip> // <--- 1. 包含 QToolTip 头文件
+#include <QFontDialog>
+#include <QFont>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_currentPlaylistIndex(0)
     , m_currentSongIndex(-1)
-    , m_playbackMode(PlaybackMode::ListLoop) // 默认设置为列表循环
+    , m_inListMode(InListMode::Sequential)
+    , m_crossListMode(CrossListMode::ListLoop)
     , m_shuffledPlaybackIndex(0)             // 初始化随机播放索引
+    , m_isFirstShow(true)
 {
     m_player = new QMediaPlayer(this);
     m_audioOutput = new QAudioOutput(this);
@@ -46,7 +52,8 @@ MainWindow::MainWindow(QWidget* parent)
     
     updatePlaylistView();
     updateSongListView();
-    updatePlaybackModeButton(); // 在启动时更新一次按钮状态
+    updateInListModeButton();   // 在启动时更新按钮状态
+    updateCrossListModeButton(); // 在启动时更新按钮状态
 
     // 1. 设置窗口图标（这将显示在标题栏和任务栏）
     //    我们使用 Qt 资源系统中的路径
@@ -58,20 +65,27 @@ MainWindow::MainWindow(QWidget* parent)
         setVisible(!isVisible()); // 切换窗口的可见性
     });
 
+    QAction* fontAction = new QAction("字体...", this);
+    connect(fontAction, &QAction::triggered, this, &MainWindow::onShowFontSettings);
+
+    QMenu* settingsMenu = new QMenu("设置", this);
+    settingsMenu->addAction(fontAction);
+    
     m_quitAction = new QAction("退出", this);
-    // 连接到 QApplication 的 quit 槽，确保程序能干净地退出
     connect(m_quitAction, &QAction::triggered, qApp, &QApplication::quit); 
 
     m_trayMenu = new QMenu(this);
     m_trayMenu->addAction(m_restoreAction);
+    m_trayMenu->addSeparator();
+    m_trayMenu->addMenu(settingsMenu); // <--- 将“设置”子菜单添加到主菜单
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(m_quitAction);
 
     // 3. 创建系统托盘图标对象
     m_trayIcon = new QSystemTrayIcon(this);
     m_trayIcon->setIcon(QIcon(":/icons/appicon.ico"));
-    m_trayIcon->setToolTip("MusicPlayer"); // 鼠标悬停时显示的文字
-    m_trayIcon->setContextMenu(m_trayMenu);
+    m_trayIcon->setToolTip("MusicPlayer");
+    m_trayIcon->setContextMenu(m_trayMenu); // <-- 将我们正确创建的菜单设置给托盘
 
     // 4. 连接托盘图标的点击信号
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayIconActivated);
@@ -79,16 +93,25 @@ MainWindow::MainWindow(QWidget* parent)
     // 5. 显示托盘图标
     m_trayIcon->show();
 
-    // ↓↓↓ 3. 在构造函数的末尾，添加加载设置的逻辑 ↓↓↓
+    // 6. 加载设置
     QSettings settings;
-    // 恢复窗口大小和位置
     if (settings.contains("geometry")) {
         restoreGeometry(settings.value("geometry").toByteArray());
     }
-    // 恢复 Splitter 的状态
     if (settings.contains("splitterState")) {
         m_mainSplitter->restoreState(settings.value("splitterState").toByteArray());
     }
+
+    QFont defaultListFont = m_playlistListWidget->font();
+
+    //从设置中加载字体，如果不存在则使用默认值
+    QFont savedFont = settings.value("listFont", defaultListFont).value<QFont>();
+    
+    //将加载的字体分别设置给两个列表控件
+    m_playlistListWidget->setFont(savedFont);
+    m_songListWidget->setFont(savedFont);
+
+    m_volumeSlider->setValue(settings.value("volume", 70).toInt());
 }
 
 MainWindow::~MainWindow() {}
@@ -156,18 +179,26 @@ void MainWindow::setupUI() {
     connect(m_nextBtn, &QPushButton::clicked, 
             this, &MainWindow::onNextClicked);
     
-    // ↓↓↓ 在“下一曲”按钮旁边，添加播放模式按钮 ↓↓↓
-    m_playbackModeBtn = new QPushButton(this);
-    m_playbackModeBtn->setIconSize(QSize(28, 28));
-    m_playbackModeBtn->setFixedSize(50, 50);
-    connect(m_playbackModeBtn, &QPushButton::clicked,
-            this, &MainWindow::onPlaybackModeClicked);
+    // 创建【列表内模式】按钮 (顺序/随机)
+    m_inListModeBtn = new QPushButton(this);
+    m_inListModeBtn->setIconSize(QSize(28, 28));
+    m_inListModeBtn->setFixedSize(50, 50);
+    connect(m_inListModeBtn, &QPushButton::clicked,
+            this, &MainWindow::onInListModeClicked);
+
+    // 创建【列表间模式】按钮 (循环/前进等)
+    m_crossListModeBtn = new QPushButton(this);
+    m_crossListModeBtn->setIconSize(QSize(28, 28));
+    m_crossListModeBtn->setFixedSize(50, 50);
+    connect(m_crossListModeBtn, &QPushButton::clicked,
+            this, &MainWindow::onCrossListModeClicked);
 
 
     controlLayout->addWidget(m_previousBtn);
     controlLayout->addWidget(m_playPauseBtn);
     controlLayout->addWidget(m_nextBtn);
-    controlLayout->addWidget(m_playbackModeBtn);
+    controlLayout->addWidget(m_inListModeBtn);
+    controlLayout->addWidget(m_crossListModeBtn);
     controlLayout->addStretch();
     mainLayout->addLayout(controlLayout);
     
@@ -187,9 +218,6 @@ void MainWindow::setupUI() {
     volumeLayout->addStretch();
     mainLayout->addLayout(volumeLayout);
     
-    // ====================================================================
-    // ## 主要修改区域：从下拉列表改为左右布局 ##
-    // ====================================================================
 
     // 使用 QSplitter 来创建可拖动的左右两个面板
     m_mainSplitter = new QSplitter(Qt::Horizontal, this);
@@ -254,6 +282,74 @@ void MainWindow::setupUI() {
     m_audioOutput->setVolume(0.7);
 }
 
+void MainWindow::onInListModeClicked() {
+    if (m_inListMode == InListMode::Sequential) {
+        m_inListMode = InListMode::Random;
+        generateShuffledPlaylist(); // 切换到随机时生成列表
+    } else {
+        m_inListMode = InListMode::Sequential;
+        m_shuffledIndices.clear(); // 离开随机时清空列表
+    }
+    updateInListModeButton();
+}
+
+void MainWindow::onCrossListModeClicked() {
+    switch (m_crossListMode) {
+        case CrossListMode::ListLoop:
+            m_crossListMode = CrossListMode::SingleLoop;
+            break;
+        case CrossListMode::SingleLoop:
+            m_crossListMode = CrossListMode::Advance;
+            break;
+        case CrossListMode::Advance:
+            m_crossListMode = CrossListMode::ListLoop;
+            break;
+        // 'Stop' 模式不在此循环中，可以通过设置界面添加
+        case CrossListMode::Stop:
+            m_crossListMode = CrossListMode::ListLoop;
+            break;
+    }
+    updateCrossListModeButton();
+}
+
+
+// ↓↓↓ 实现新的函数，根据当前模式更新按钮的UI ↓↓↓
+void MainWindow::updateInListModeButton() {
+    if (m_inListMode == InListMode::Sequential) {
+    // 自定义图标
+        m_inListModeBtn->setIcon(QIcon(":/icons/sequential.png"));
+        m_inListModeBtn->setToolTip("顺序播放");
+    } else {
+    // 自定义图标
+        m_inListModeBtn->setIcon(QIcon(":/icons/random.png"));
+        m_inListModeBtn->setToolTip("随机播放");
+    }
+}
+
+// ↓↓↓ 修改 updateCrossListModeButton 函数 ↓↓↓
+void MainWindow::updateCrossListModeButton() {
+    switch (m_crossListMode) {
+        case CrossListMode::ListLoop:
+            m_crossListModeBtn->setIcon(QIcon(":/icons/listloop.png"));
+            m_crossListModeBtn->setToolTip("列表循环");
+            break;
+        case CrossListMode::SingleLoop:
+            m_crossListModeBtn->setIcon(QIcon(":/icons/singleloop.png"));
+            m_crossListModeBtn->setToolTip("单曲循环");
+            break;
+        case CrossListMode::Advance:
+            m_crossListModeBtn->setIcon(QIcon(":/icons/advance.png"));
+            m_crossListModeBtn->setToolTip("列表顺序");
+            break;
+        case CrossListMode::Stop:
+            // 如果您也为 Stop 模式准备了图标
+            // m_crossListModeBtn->setIcon(QIcon(":/icons/stop.png"));
+            m_crossListModeBtn->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+            m_crossListModeBtn->setToolTip("播完停止");
+            break;
+}
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (this->isVisible() && m_trayIcon->isVisible()) {
@@ -270,6 +366,12 @@ void MainWindow::closeEvent(QCloseEvent *event)
     
     // 保存 Splitter 的状态（两个面板的相对大小）
     settings.setValue("splitterState", m_mainSplitter->saveState());
+
+    // 保存当前音量滑块的值
+    settings.setValue("volume", m_volumeSlider->value());
+
+    settings.setValue("lastPlaylistIndex", m_currentPlaylistIndex);
+    settings.setValue("lastSongIndex", m_currentSongIndex);
 
     // 调用基类的 closeEvent，确保窗口能正常关闭
     QMainWindow::closeEvent(event);
@@ -394,53 +496,6 @@ void MainWindow::onNextClicked() {
     playNextSong();
 }
 
-// ↓↓↓ 新增槽函数，用于处理播放模式按钮的点击事件 ↓↓↓
-void MainWindow::onPlaybackModeClicked() {
-    switch (m_playbackMode) {
-        case PlaybackMode::Sequential:
-            m_playbackMode = PlaybackMode::ListLoop;
-            break;
-        case PlaybackMode::ListLoop:
-            m_playbackMode = PlaybackMode::SingleLoop;
-            break;
-        case PlaybackMode::SingleLoop:
-            m_playbackMode = PlaybackMode::Random;
-            generateShuffledPlaylist(); // 切换到随机模式时，立即生成随机列表
-            break;
-        case PlaybackMode::Random:
-            m_playbackMode = PlaybackMode::Sequential;
-            m_shuffledIndices.clear(); // 离开随机模式时，清空列表
-            break;
-    }
-    updatePlaybackModeButton();
-}
-
-
-// ↓↓↓ 新增函数，根据当前模式更新按钮的图标和提示 ↓↓↓
-void MainWindow::updatePlaybackModeButton() {
-    switch (m_playbackMode) {
-        case PlaybackMode::Sequential:
-            m_playbackModeBtn->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
-            m_playbackModeBtn->setToolTip("顺序播放");
-            break;
-        case PlaybackMode::ListLoop:
-            m_playbackModeBtn->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-            m_playbackModeBtn->setToolTip("列表循环");
-            break;
-        case PlaybackMode::SingleLoop:
-            // 注意：Qt 标准图标没有完美的“单曲循环”图标，我们复用一个并改变提示
-            // 在实际项目中，您可以使用 QIcon(":/icons/single_loop.png") 来加载自定义图标
-            m_playbackModeBtn->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton)); 
-            m_playbackModeBtn->setToolTip("单曲循环");
-            break;
-        case PlaybackMode::Random:
-            // 同样，没有完美的“随机播放”图标
-            m_playbackModeBtn->setIcon(style()->standardIcon(QStyle::SP_ToolBarHorizontalExtensionButton));
-            m_playbackModeBtn->setToolTip("随机播放");
-            break;
-    }
-}
-
 
 // ↓↓↓ 新增辅助函数，封装“播放下一曲”的全部逻辑 ↓↓↓
 // ↓↓↓ 实现新的核心逻辑函数 playNextSong ↓↓↓
@@ -450,42 +505,80 @@ void MainWindow::playNextSong() {
         return;
     }
 
-    int nextIndex = -1;
+    // --- 第 1 部分：决定列表内的下一首歌曲索引 ---
+    int nextIndexInList = -1;
+    bool isListFinished = false;
 
-    switch (m_playbackMode) {
-        case PlaybackMode::SingleLoop:
-            // 单曲循环：下一首就是当前这首
-            nextIndex = m_currentSongIndex;
-            break;
-            
-        case PlaybackMode::Random:
-            if (m_shuffledIndices.isEmpty()) {
-                generateShuffledPlaylist(); // 以防万一列表是空的
-            }
-            // 移动到随机列表的下一首
-            m_shuffledPlaybackIndex++;
-            // 如果随机列表播放完了，就重新生成一个新的随机列表
-            if (m_shuffledPlaybackIndex >= m_shuffledIndices.size()) {
-                generateShuffledPlaylist();
-            }
-            nextIndex = m_shuffledIndices.value(m_shuffledPlaybackIndex, 0);
-            break;
-            
-        case PlaybackMode::ListLoop:
-            // 列表循环：使用取模运算
-            nextIndex = (m_currentSongIndex + 1) % playlist->songCount();
-            break;
-            
-        case PlaybackMode::Sequential:
-            // 顺序播放：只在列表范围内前进
-            if (m_currentSongIndex + 1 < playlist->songCount()) {
-                nextIndex = m_currentSongIndex + 1;
-            }
-            break;
+    if (m_crossListMode == CrossListMode::SingleLoop) {
+        // 对于单曲循环，下一首永远是当前这首
+        nextIndexInList = m_currentSongIndex;
+    } else if (m_inListMode == InListMode::Random) {
+        // 随机模式
+        m_shuffledPlaybackIndex++;
+        if (m_shuffledPlaybackIndex < m_shuffledIndices.size()) {
+            nextIndexInList = m_shuffledIndices.at(m_shuffledPlaybackIndex);
+        } else {
+            isListFinished = true; // 随机列表已播完
+        }
+    } else { // 顺序模式
+        if (m_currentSongIndex + 1 < playlist->songCount()) {
+            nextIndexInList = m_currentSongIndex + 1;
+        } else {
+            isListFinished = true; // 顺序列表已播完
+        }
     }
 
-    if (nextIndex != -1) {
-        playSong(nextIndex);
+    // --- 第 2 部分：根据列表是否播完，以及列表间过渡模式，决定最终动作 ---
+    if (!isListFinished) {
+        // 情况 A: 列表还没播完，直接播放下一首
+        playSong(nextIndexInList);
+    } else {
+        // 情况 B: 列表已经播完了
+        switch (m_crossListMode) {
+            case CrossListMode::ListLoop:
+                // 重新开始当前列表的第一首歌
+                if (m_inListMode == InListMode::Random) {
+                    generateShuffledPlaylist(); // 重新生成随机顺序
+                    playSong(m_shuffledIndices.at(0));
+                } else {
+                    playSong(0); // 播放顺序第一首
+                }
+                break;
+            
+            case CrossListMode::Advance:
+                // 切换到下一个播放列表
+                {
+                    int nextPlaylistIndex = (m_currentPlaylistIndex + 1) % m_playlistManager->playlistCount();
+                    m_playlistListWidget->setCurrentRow(nextPlaylistIndex);
+                    // setCurrentRow 会触发 onPlaylistSelectionChanged, 
+                    // 它会更新 m_currentPlaylistIndex 并刷新歌曲列表
+                    
+                    // 自动播放新列表的第一首歌
+                    // 需要稍作延迟，等待 onPlaylistSelectionChanged 完成
+                    QTimer::singleShot(50, this, [this]() {
+                        Playlist* newPlaylist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+                        if (newPlaylist && newPlaylist->songCount() > 0) {
+                             if (m_inListMode == InListMode::Random) {
+                                generateShuffledPlaylist();
+                                playSong(m_shuffledIndices.at(0));
+                             } else {
+                                playSong(0);
+                             }
+                        }
+                    });
+                }
+                break;
+
+            case CrossListMode::SingleLoop:
+                // 理论上 isListFinished 为 true 时不会进入这里，
+                // 但为保险起见，我们还是让它循环当前这首
+                playSong(m_currentSongIndex);
+                break;
+
+            case CrossListMode::Stop:
+                // 播完停止，什么都不做
+                break;
+        }
     }
 }
 
@@ -529,7 +622,7 @@ void MainWindow::onAddSongsClicked() {
     updateSongListView();
     
     // 如果当前是随机模式，则重新生成随机列表
-    if (m_playbackMode == PlaybackMode::Random) {
+    if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
 }
@@ -573,9 +666,10 @@ void MainWindow::onDeletePlaylistClicked() {
     updateSongListView();
 
     // 如果是随机模式，重新生成
-    if (m_playbackMode == PlaybackMode::Random) {
+    if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
+
 }
 
 void MainWindow::onPlaylistSelectionChanged() {
@@ -589,7 +683,7 @@ void MainWindow::onPlaylistSelectionChanged() {
     updateSongListView();
 
     // 切换了播放列表，如果当前是随机模式，需要为新列表生成随机顺序
-    if (m_playbackMode == PlaybackMode::Random) {
+    if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
 }
@@ -614,7 +708,12 @@ void MainWindow::onProgressSliderMoved(int position) {
 }
 
 void MainWindow::onVolumeChanged(int value) {
+    // a. 设置播放器的实际音量
     m_audioOutput->setVolume(value / 100.0);
+
+    // b. 在当前鼠标光标位置显示一个临时的百分比提示
+    QString tooltipText = QString("音量: %1%").arg(value);
+    QToolTip::showText(QCursor::pos(), tooltipText, m_volumeSlider);
 }
 
 void MainWindow::onMediaStatusChanged(QMediaPlayer::MediaStatus status) {
@@ -669,7 +768,7 @@ void MainWindow::onFilesDroppedToSongList(const QList<QUrl>& urls) {
     updateSongListView();
 
     // 如果是随机模式，重新生成随机列表
-    if (m_playbackMode == PlaybackMode::Random) {
+    if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
 }
@@ -820,7 +919,66 @@ void MainWindow::onDeleteSongClicked() {
     updatePlaylistView();   // 刷新播放列表的歌曲计数
 
     // 6. 如果是随机播放模式，删除歌曲后需要重新生成随机列表
-    if (m_playbackMode == PlaybackMode::Random) {
+    if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
+    }
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    // 首先，必须调用基类的实现
+    QMainWindow::showEvent(event);
+
+    // 使用标志位确保这个加载逻辑只在程序启动时执行一次
+    // 而不是每次从托盘恢复窗口时都执行
+    if (m_isFirstShow) {
+        m_isFirstShow = false; // 立刻将标志位设为 false
+
+        QSettings settings;
+        int lastPlaylistIndex = settings.value("lastPlaylistIndex", 0).toInt();
+        int lastSongIndex = settings.value("lastSongIndex", -1).toInt();
+
+        // 验证加载的播放列表索引是否有效
+        if (lastPlaylistIndex >= 0 && lastPlaylistIndex < m_playlistManager->playlistCount()) {
+            
+            // 切换到上次的播放列表
+            m_playlistListWidget->setCurrentRow(lastPlaylistIndex);
+            // onPlaylistSelectionChanged 会被自动触发，更新 m_currentPlaylistIndex 和歌曲列表视图
+
+            Playlist* playlist = m_playlistManager->getPlaylist(lastPlaylistIndex);
+            // 验证加载的歌曲索引是否有效
+            if (playlist && lastSongIndex >= 0 && lastSongIndex < playlist->songCount()) {
+                
+                // 播放上次的歌曲
+                playSong(lastSongIndex);
+            }
+        }
+    }
+}
+
+
+void MainWindow::onShowFontSettings()
+{
+    // a. 获取当前列表控件的字体作为对话框的默认选项
+    QFont currentFont = m_playlistListWidget->font();
+
+    bool ok;
+    QFont selectedFont = QFontDialog::getFont(
+        &ok,
+        currentFont,
+        this,
+        "选择列表字体"
+    );
+
+    // c. 如果用户点击了“确定”
+    if (ok) {
+        // i. 将新字体分别应用到两个列表控件
+        m_playlistListWidget->setFont(selectedFont);
+        m_songListWidget->setFont(selectedFont);
+
+        // ii. 使用 QSettings 立即保存用户的选择
+        //     使用一个新的键名 "listFont" 以区别于之前的全局设置
+        QSettings settings;
+        settings.setValue("listFont", selectedFont);
     }
 }

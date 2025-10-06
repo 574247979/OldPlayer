@@ -1,6 +1,14 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/">
+        <!-- 应用图标 -->
         <file alias="icons/appicon.ico">appicon.ico</file>
+        
+        <!--添加播放模式图标-->
+        <file alias="icons/sequential.png">icons/icon_sequential.png</file>
+        <file alias="icons/random.png">icons/icon_random.png</file>
+        <file alias="icons/listloop.png">icons/icon_listloop.png</file>
+        <file alias="icons/singleloop.png">icons/icon_singleloop.png</file>
+        <file alias="icons/advance.png">icons/icon_advance.png</file>
     </qresource>
 </RCC>
