@@ -49,7 +49,7 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 ```bash
 # 克隆仓库
-git clone https://github.com/YourUsername/MusicPlayer.git
+git clone https://github.com/574247979/MusicPlayer.git
 cd MusicPlayer
 
 # 创建构建目录
@@ -75,7 +75,6 @@ cmake --build .
     windeployqt MusicPlayer.exe
     ```
 5.  该工具会自动将所有必需的 `.dll` 文件和插件复制到当前目录。
-6.  将整个文件夹压缩后即可分发给他人使用。
 
 ## 📜 开源许可 (License)
 
