@@ -72,7 +72,7 @@ cmake --build .
 3.  进入包含 `MusicPlayer.exe` 的 Release 输出目录。
 4.  运行命令:
     ```bash
-    windeployqt MusicPlayer.exe
+    windeployqt OldPlayer.exe
     ```
 5.  该工具会自动将所有必需的 `.dll` 文件和插件复制到当前目录。
 
