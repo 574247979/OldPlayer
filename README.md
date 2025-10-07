@@ -69,7 +69,7 @@ cmake --build .
 
 1.  首先，构建 **Release** 版本的程序。
 2.  打开 Qt 提供的专用命令行工具 (e.g., "Qt 6.x.x for Desktop (MinGW ...)")。
-3.  进入包含 `MusicPlayer.exe` 的 Release 输出目录。
+3.  进入包含 `OldPlayer.exe` 的 Release 输出目录。
 4.  运行命令:
     ```bash
     windeployqt OldPlayer.exe
