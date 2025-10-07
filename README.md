@@ -39,7 +39,7 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 #### 1. 使用 Qt Creator (推荐)
 
-1.  下载或克隆本仓库: `git clone https://github.com/YourUsername/MusicPlayer.git`
+1.  下载或克隆本仓库: `git clone https://github.com/574247979/OldPlayer.git`
 2.  使用 Qt Creator 打开项目根目录下的 `CMakeLists.txt` 文件。
 3.  Qt Creator 会自动配置项目，选择你的构建套件 (Kit)。
 4.  在左下角将构建模式从 "Debug" 切换到 **"Release"**。
@@ -49,8 +49,8 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 ```bash
 # 克隆仓库
-git clone https://github.com/574247979/MusicPlayer.git
-cd MusicPlayer
+git clone https://github.com/574247979/OldPlayer.git
+cd OldPlayer
 
 # 创建构建目录
 mkdir build && cd build
