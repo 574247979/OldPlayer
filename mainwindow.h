@@ -14,6 +14,7 @@
 #include <QCloseEvent>
 #include <QSystemTrayIcon>
 #include <QShowEvent>
+#include <QDateTime>
 #include "playlistmanager.h"
 #include "playlistlistwidget.h"
 #include "songlistwidget.h"
@@ -59,6 +60,9 @@ enum class CrossListMode {
 
 class QSplitter;
 
+class QProcess;
+class QTimer;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
     
@@ -95,6 +99,12 @@ private slots:
     void onMetaDataChanged();
     void onInListModeClicked();
     void onCrossListModeClicked();
+    //定时关机功能
+    void onShutdownTimerTimeout();       // 定时器触发时调用
+    void onSetShutdownAfter30Mins();     // "30分钟后" 菜单项
+    void onSetShutdownAfter60Mins();     // "60分钟后" 菜单项
+    void onSetCustomShutdownTime();      // "自定义时间" 菜单项
+    void onCancelShutdown();             // "取消定时" 菜单项
     
 private:
     void setupUI();
@@ -103,11 +113,12 @@ private:
     void playSong(int index);
     void updatePlayPauseButton();
     void resetPlayerState();
-    void playNextSong();             // <--- 4. 新增一个处理“下一曲”逻辑的辅助函数
+    void playNextSong();             //处理“下一曲”逻辑的辅助函数
     void generateShuffledPlaylist();
     void updateInListModeButton();
     void updateCrossListModeButton();
     bool m_isFirstShow;
+    void startShutdownTimer(int msecs); 
     QString formatTime(qint64 milliseconds);
     
     // UI 组件
@@ -130,12 +141,21 @@ private:
     QAction* m_restoreAction;
     QAction* m_quitAction;
     
+    //成员变量存储高亮字体
+    QFont m_playingSongFont;
     
     // 播放器
     QMediaPlayer* m_player;
     QAudioOutput* m_audioOutput;
     QSplitter* m_mainSplitter; // <--- 4. 将 Splitter 声明为成员变量
     PlaylistManager* m_playlistManager;
+
+
+    //定时关机相关的成员变量
+    QTimer* m_shutdownTimer;
+    QProcess* m_shutdownProcess;
+    QDateTime m_shutdownDateTime;      // 用于存储关机时间，方便UI显示
+    QAction* m_cancelShutdownAction;   // 用于方便地启用/禁用“取消”菜单项
 
     
 
@@ -144,6 +164,8 @@ private:
     
     int m_currentPlaylistIndex;
     int m_currentSongIndex;
+
+    int m_playingPlaylistIndex; 
 
     InListMode m_inListMode;     // <-- 新的模式变量
     CrossListMode m_crossListMode; // <-- 新的模式变量

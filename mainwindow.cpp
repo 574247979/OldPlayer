@@ -22,23 +22,37 @@
 #include <QFontDialog>
 #include <QFont>
 #include <QTimer>
+#include <QProcess>
+#include "customtimedialog.h"
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_currentPlaylistIndex(0)
     , m_currentSongIndex(-1)
-    , m_inListMode(InListMode::Sequential)
-    , m_crossListMode(CrossListMode::ListLoop)
+    //, m_inListMode(InListMode::Sequential)
+    //, m_crossListMode(CrossListMode::ListLoop)
     , m_shuffledPlaybackIndex(0)             // 初始化随机播放索引
     , m_isFirstShow(true)
+    , m_playingPlaylistIndex(-1)
 {
     m_player = new QMediaPlayer(this);
     m_audioOutput = new QAudioOutput(this);
     m_player->setAudioOutput(m_audioOutput);
     
     m_playlistManager = new PlaylistManager(this);
+
+    m_shutdownTimer = new QTimer(this);
+    m_shutdownTimer->setSingleShot(true); // 这是一个一次性的定时器
+    connect(m_shutdownTimer, &QTimer::timeout, this, &MainWindow::onShutdownTimerTimeout);
+
+    m_shutdownProcess = new QProcess(this);
     
     setupUI();
+
+    //安全地初始化字体
+    m_playingSongFont = m_songListWidget->font();
+    m_playingSongFont.setBold(true);
     
     // 连接播放器信号
     connect(m_player, &QMediaPlayer::positionChanged, 
@@ -55,11 +69,11 @@ MainWindow::MainWindow(QWidget* parent)
     updateInListModeButton();   // 在启动时更新按钮状态
     updateCrossListModeButton(); // 在启动时更新按钮状态
 
-    // 1. 设置窗口图标（这将显示在标题栏和任务栏）
-    //    我们使用 Qt 资源系统中的路径
+    //设置窗口图标（标题栏和任务栏）
+    //使用 Qt 资源系统中的路径
     setWindowIcon(QIcon(":/icons/appicon.ico"));
 
-    // 2. 创建托盘图标的右键菜单
+    //创建托盘图标的右键菜单
     m_restoreAction = new QAction("显示/隐藏", this);
     connect(m_restoreAction, &QAction::triggered, this, [this]() {
         setVisible(!isVisible()); // 切换窗口的可见性
@@ -70,6 +84,25 @@ MainWindow::MainWindow(QWidget* parent)
 
     QMenu* settingsMenu = new QMenu("设置", this);
     settingsMenu->addAction(fontAction);
+
+    QMenu* shutdownMenu = new QMenu("定时关机", this);
+
+    QAction* shutdown30MinsAction = shutdownMenu->addAction("30分钟后");
+    connect(shutdown30MinsAction, &QAction::triggered, this, &MainWindow::onSetShutdownAfter30Mins);
+    
+    QAction* shutdown60MinsAction = shutdownMenu->addAction("60分钟后");
+    connect(shutdown60MinsAction, &QAction::triggered, this, &MainWindow::onSetShutdownAfter60Mins);
+    
+    QAction* customShutdownAction = shutdownMenu->addAction("自定义时间...");
+    connect(customShutdownAction, &QAction::triggered, this, &MainWindow::onSetCustomShutdownTime);
+    
+    shutdownMenu->addSeparator();
+    
+    m_cancelShutdownAction = shutdownMenu->addAction("取消定时关机");
+    m_cancelShutdownAction->setEnabled(false); // 默认禁用
+    connect(m_cancelShutdownAction, &QAction::triggered, this, &MainWindow::onCancelShutdown);
+
+    settingsMenu->addMenu(shutdownMenu);
     
     m_quitAction = new QAction("退出", this);
     connect(m_quitAction, &QAction::triggered, qApp, &QApplication::quit); 
@@ -81,19 +114,19 @@ MainWindow::MainWindow(QWidget* parent)
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(m_quitAction);
 
-    // 3. 创建系统托盘图标对象
+    //创建系统托盘图标对象
     m_trayIcon = new QSystemTrayIcon(this);
     m_trayIcon->setIcon(QIcon(":/icons/appicon.ico"));
     m_trayIcon->setToolTip("MusicPlayer");
     m_trayIcon->setContextMenu(m_trayMenu); // <-- 将我们正确创建的菜单设置给托盘
 
-    // 4. 连接托盘图标的点击信号
+    //连接托盘图标的点击信号
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayIconActivated);
     
-    // 5. 显示托盘图标
+    //显示托盘图标
     m_trayIcon->show();
 
-    // 6. 加载设置
+    //加载设置
     QSettings settings;
     if (settings.contains("geometry")) {
         restoreGeometry(settings.value("geometry").toByteArray());
@@ -112,6 +145,25 @@ MainWindow::MainWindow(QWidget* parent)
     m_songListWidget->setFont(savedFont);
 
     m_volumeSlider->setValue(settings.value("volume", 70).toInt());
+
+    //加载播放模式
+    //加载列表内模式 (顺序/随机)
+    //枚举转换为整数进行存储。如果设置不存在，默认为 Sequential (0)
+    m_inListMode = static_cast<InListMode>(settings.value("inListMode", 
+                                            static_cast<int>(InListMode::Sequential)).toInt());
+    
+    //加载列表间模式 (循环/前进等)
+    //默认为 ListLoop (1)
+    m_crossListMode = static_cast<CrossListMode>(settings.value("crossListMode",
+                                                    static_cast<int>(CrossListMode::ListLoop)).toInt());
+
+    //加载完模式后，立即更新按钮的UI状态
+    updateInListModeButton();
+    updateCrossListModeButton();
+
+    //现在再更新列表视图
+    updatePlaylistView();
+    updateSongListView();
 }
 
 MainWindow::~MainWindow() {}
@@ -232,10 +284,12 @@ void MainWindow::setupUI() {
     QVBoxLayout* playlistGroupLayout = new QVBoxLayout(playlistGroup);
     
     m_playlistListWidget = new PlaylistListWidget(this);
+    //为播放列表启用多选功能
+    m_playlistListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
+
     m_playlistListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_playlistListWidget, &QListWidget::currentRowChanged,
             this, &MainWindow::onPlaylistSelectionChanged);
-    // ↓↓↓ 连接新信号到新槽 ↓↓↓
     connect(m_playlistListWidget, &PlaylistListWidget::foldersDropped,
             this, &MainWindow::onFoldersDropped);
     connect(m_playlistListWidget, &QWidget::customContextMenuRequested,
@@ -255,10 +309,11 @@ void MainWindow::setupUI() {
     QVBoxLayout* songListLayout = new QVBoxLayout(songListGroup);
 
     m_songListWidget = new SongListWidget(this);
+    //为歌曲列表启用多选功能
+    m_songListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_songListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_songListWidget, &QListWidget::itemDoubleClicked,
             this, &MainWindow::onSongDoubleClicked);
-    // ↓↓↓ 连接新信号到新槽 ↓↓↓
     connect(m_songListWidget, &SongListWidget::filesDropped,
             this, &MainWindow::onFilesDroppedToSongList);
     connect(m_songListWidget, &QWidget::customContextMenuRequested,
@@ -373,20 +428,39 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings.setValue("lastPlaylistIndex", m_currentPlaylistIndex);
     settings.setValue("lastSongIndex", m_currentSongIndex);
 
+    settings.setValue("inListMode", static_cast<int>(m_inListMode));
+    settings.setValue("crossListMode", static_cast<int>(m_crossListMode));
+
     // 调用基类的 closeEvent，确保窗口能正常关闭
     QMainWindow::closeEvent(event);
 }
 
 void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason)
 {
-    // 我们只关心单击（在Windows上是左键单击）
-    switch (reason) {
-        case QSystemTrayIcon::Trigger: // 单击
-            // 切换窗口的可见性
-            setVisible(!isVisible());
-            break;
-        default:
-            break;
+    // 我们只关心单击事件 (Trigger)，忽略双击、中键点击等
+    if (reason == QSystemTrayIcon::Trigger) {
+        
+        // 判断当前窗口是否可见（或者是否被最小化了）
+        // isMinimized() 对于隐藏的窗口返回 false，所以需要 isVisible() 一起判断
+        if (this->isVisible() && !this->isMinimized()) {
+            // --- 情况A: 窗口当前是可见且正常的 ---
+            //缩回托盘，隐藏窗口
+            this->hide();
+            
+        } else {
+            // --- 情况B: 窗口当前是隐藏的，或是最小化状态 ---
+            //跳到最前
+            
+            //确保窗口可见（如果是 hide() 状态，则显示）
+            this->show();
+            
+            //恢复窗口状态（如果是最小化，则恢复正常）
+            this->setWindowState(windowState() & ~Qt::WindowMinimized);
+            
+            //提升并激活窗口
+            this->raise();
+            this->activateWindow();
+        }
     }
 }
 
@@ -414,44 +488,66 @@ void MainWindow::updateSongListView() {
     
     Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
     if (!playlist) return;
-    
+
+    QListWidgetItem* itemToScrollTo = nullptr;
+
     int index = 0;
     for (const Song& song : playlist->getSongs()) {
+        // --- 1. 确保这段代码存在 ---
         QString itemText = QString("%1. %2 - %3")
             .arg(index + 1)
             .arg(song.title)
             .arg(song.artist);
         
+        // --- 2. 创建列表项 ---
         QListWidgetItem* item = new QListWidgetItem(itemText);
         item->setData(Qt::UserRole, index);
         
-        if (index == m_currentSongIndex) {
-            item->setBackground(QColor(100, 150, 255, 50));
+        // 检查当前UI选中的列表(m_currentPlaylistIndex)是否就是正在播放的列表(m_playingPlaylistIndex)
+        // 并且，当前歌曲的索引(index)是否就是正在播放的歌曲的索引(m_currentSongIndex)
+        if (m_currentPlaylistIndex == m_playingPlaylistIndex && index == m_currentSongIndex) {
+            item->setFont(m_playingSongFont);
+            item->setBackground(QColor("#5E81AC"));
+            item->setForeground(QColor("#ECEFF4"));
+            itemToScrollTo = item;
+        } else {
+            item->setBackground(Qt::NoBrush);
         }
         
         m_songListWidget->addItem(item);
         index++;
     }
+    
+    // --- 5. 执行滚动 ---
+    if (itemToScrollTo) {
+        m_songListWidget->scrollToItem(itemToScrollTo, QAbstractItemView::PositionAtCenter);
+    }
 }
 
 
 void MainWindow::playSong(int index) {
-    Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    m_playingPlaylistIndex = m_currentPlaylistIndex; 
+    
+    Playlist* playlist = m_playlistManager->getPlaylist(m_playingPlaylistIndex); // 使用 m_playingPlaylistIndex 获取
     if (!playlist || index < 0 || index >= playlist->songCount()) {
+        // 如果播放失败，重置状态
+        m_playingPlaylistIndex = -1; 
         return;
     }
     
     Song song = playlist->getSong(index);
     m_currentSongIndex = index;
     
-    // 先设置标题为文件名，元数据加载后会更新
-    m_songTitleLabel->setText(song.title);
-    m_songArtistLabel->setText("正在加载..."); // 提示正在加载
-    
     m_player->setSource(QUrl::fromLocalFile(song.filePath));
     m_player->play();
     
+    m_songTitleLabel->setText(song.title);
+    m_songArtistLabel->setText(song.artist);
+    
+    //直接调用 updateSongListView()
+    // 这个函数现在已经包含了高亮和滚动的所有逻辑，一举两得
     updateSongListView();
+    
     updatePlayPauseButton();
 }
 
@@ -647,21 +743,37 @@ void MainWindow::onCreatePlaylistClicked() {
 }
 
 void MainWindow::onDeletePlaylistClicked() {
-    if (m_playlistManager->playlistCount() <= 1) {
-        QMessageBox::warning(this, "警告", "至少需要保留一个播放列表！");
-        return;
+    //获取所有被选中的项
+    QList<QListWidgetItem*> selectedItems = m_playlistListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        return; // 如果没有选中项，则不执行任何操作
+    }
+
+    //将项转换为行号索引
+    QList<int> indicesToDelete;
+    for (QListWidgetItem* item : selectedItems) {
+        indicesToDelete.append(m_playlistListWidget->row(item));
     }
     
-    // 从 ListWidget 获取当前选中的行
-    int indexToDelete = m_playlistListWidget->currentRow();
-    if (indexToDelete < 0) return; // 如果没有选中项，则不执行任何操作
+    //对索引进行降序排序
+    //必须从后往前删除，否则前面的索引会失效
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
 
-    m_playlistManager->removePlaylist(indexToDelete);
+    //执行删除
+    for (int index : indicesToDelete) {
+        // 确保不会删除最后一个播放列表
+        if (m_playlistManager->playlistCount() > 1) {
+            m_playlistManager->removePlaylist(index);
+        } else {
+            QMessageBox::warning(this, "警告", "至少需要保留一个播放列表！");
+            break; // 停止继续删除
+        }
+    }
     
-    // 更新当前播放索引
+    //更新状态和UI
     m_currentPlaylistIndex = 0;
     m_currentSongIndex = -1;
-
+    resetPlayerState(); // 批量删除后最好重置播放器
     updatePlaylistView();
     updateSongListView();
 
@@ -669,23 +781,20 @@ void MainWindow::onDeletePlaylistClicked() {
     if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
-
 }
 
 void MainWindow::onPlaylistSelectionChanged() {
     int index = m_playlistListWidget->currentRow();
+    // 当用户选择的行无效，或者没有真正改变时，直接返回
     if (index < 0 || index == m_currentPlaylistIndex) {
-        return; // 如果选择无效或未改变，则不执行操作
+        return; 
     }
     
+    // 更新当前播放列表的索引
     m_currentPlaylistIndex = index;
-    m_currentSongIndex = -1; // 切换列表后重置歌曲索引
-    updateSongListView();
 
-    // 切换了播放列表，如果当前是随机模式，需要为新列表生成随机顺序
-    if (m_inListMode == InListMode::Random) {
-        generateShuffledPlaylist();
-    }
+    // 根据新的 m_currentPlaylistIndex 更新右侧的歌曲列表视图
+    updateSongListView();
 }
 
 void MainWindow::onSongDoubleClicked(QListWidgetItem* item) {
@@ -836,7 +945,7 @@ void MainWindow::onPlaylistContextMenuRequested(const QPoint& pos) {
 
     // 创建动作
     QAction* createAction = contextMenu.addAction("新建播放列表");
-    QAction* deleteAction = contextMenu.addAction("删除当前列表");
+    QAction* deleteAction = contextMenu.addAction("删除选中列表");
 
     // 逻辑判断：只有当选中了一个列表，并且总列表数大于1时，才允许删除
     if (m_playlistListWidget->currentRow() < 0 || m_playlistManager->playlistCount() <= 1) {
@@ -880,45 +989,67 @@ void MainWindow::resetPlayerState() {
     m_currentTimeLabel->setText("00:00");
     m_totalTimeLabel->setText("00:00");
     m_progressSlider->setValue(0);
+    
+    // ↓↓↓ ★★★ 核心修改：重置播放器时，必须同时重置所有相关状态 ★★★ ↓↓↓
+    int oldPlayingPlaylistIndex = m_playingPlaylistIndex;
     m_currentSongIndex = -1;
+    m_playingPlaylistIndex = -1;
+    
     updatePlayPauseButton();
-}
 
+    // 如果之前有高亮的列表，现在需要刷新它以移除高亮
+    if (oldPlayingPlaylistIndex == m_currentPlaylistIndex) {
+        updateSongListView();
+    }
+}
 
 // 实现删除歌曲的槽函数
 void MainWindow::onDeleteSongClicked() {
-    // 1. 获取当前选中的行号
-    int indexToDelete = m_songListWidget->currentRow();
-    if (indexToDelete < 0) {
-        return; // 如果没有选中任何项，则不执行任何操作
+    //获取所有被选中的项
+    QList<QListWidgetItem*> selectedItems = m_songListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        return;
     }
-
-    // 2. 获取当前的播放列表
+    
     Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
     if (!playlist) {
         return;
     }
 
-    // 3. 处理核心逻辑：如果删除的歌曲影响了当前播放，需要特殊处理
-    if (indexToDelete == m_currentSongIndex) {
-        // --- 情况A: 删除的正是当前正在播放的歌曲 ---
-        resetPlayerState(); // 停止播放并重置UI
-    } else if (indexToDelete < m_currentSongIndex) {
-        // --- 情况B: 删除的歌曲在当前播放歌曲的前面 ---
-        // 列表项重新排序后，当前播放歌曲的索引需要减1
-        m_currentSongIndex--;
+    //将项转换为行号索引
+    QList<int> indicesToDelete;
+    for (QListWidgetItem* item : selectedItems) {
+        // 将索引存在 UserRole 数据中，这样更可靠
+        indicesToDelete.append(item->data(Qt::UserRole).toInt());
     }
-    // --- 情况C: 删除的歌曲在当前播放歌曲的后面 ---
-    // 这种情况对当前播放索引没有影响，无需处理
+    
+    //对索引进行降序排序
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
 
-    // 4. 从数据模型中删除歌曲
-    playlist->removeSong(indexToDelete);
+    bool currentPlayerSongRemoved = false;
 
-    // 5. 更新UI显示
-    updateSongListView();   // 刷新歌曲列表
-    updatePlaylistView();   // 刷新播放列表的歌曲计数
-
-    // 6. 如果是随机播放模式，删除歌曲后需要重新生成随机列表
+    //执行删除
+    for (int index : indicesToDelete) {
+        // 检查是否删除了正在播放的歌曲
+        if (index == m_currentSongIndex) {
+            currentPlayerSongRemoved = true;
+        } else if (index < m_currentSongIndex) {
+            // 如果删除的歌曲在当前播放歌曲的前面，索引要-1
+            m_currentSongIndex--;
+        }
+        playlist->removeSong(index);
+    }
+    
+    //如果当前播放的歌曲被删了，则重置播放器
+    if (currentPlayerSongRemoved) {
+        resetPlayerState();
+    }
+    
+    //更新UI
+    updateSongListView();
+    updatePlaylistView();
+    
+    //更新随机列表
     if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }
@@ -980,5 +1111,93 @@ void MainWindow::onShowFontSettings()
         //     使用一个新的键名 "listFont" 以区别于之前的全局设置
         QSettings settings;
         settings.setValue("listFont", selectedFont);
+    }
+}
+
+void MainWindow::startShutdownTimer(int msecs)
+{
+    if (msecs <= 0) return;
+
+    m_shutdownTimer->start(msecs);
+    m_shutdownDateTime = QDateTime::currentDateTime().addMSecs(msecs);
+    
+    // 更新托盘提示信息，告诉用户关机时间
+    m_trayIcon->setToolTip(QString("MusicPlayer\n将于 %1 定时关机")
+                           .arg(m_shutdownDateTime.toString("HH:mm:ss")));
+    
+    m_cancelShutdownAction->setEnabled(true); // 启用“取消”按钮
+    QMessageBox::information(this, "定时关机", 
+        QString("已设定在 %1 执行关机。")
+        .arg(m_shutdownDateTime.toString("yyyy-MM-dd HH:mm:ss")));
+}
+
+// “30分钟后”的槽函数
+void MainWindow::onSetShutdownAfter30Mins()
+{
+    startShutdownTimer(30 * 60 * 1000);
+}
+
+// “60分钟后”的槽函数
+void MainWindow::onSetShutdownAfter60Mins()
+{
+    startShutdownTimer(60 * 60 * 1000);
+}
+
+// “自定义时间”的槽函数
+void MainWindow::onSetCustomShutdownTime()
+{
+    // a. 创建我们的自定义对话框实例
+    CustomTimeDialog dialog(this);
+    dialog.setCurrentTime(QTime::currentTime().addSecs(60 * 10)); // 默认显示10分钟后的时间
+
+    // b. 以模态方式执行对话框，并检查返回值
+    if (dialog.exec() == QDialog::Accepted) {
+        // c. 如果用户点击了 "OK"，获取选择的时间
+        QTime time = dialog.selectedTime();
+
+        QDateTime now = QDateTime::currentDateTime();
+        QDateTime targetDateTime(now.date(), time);
+
+        if (targetDateTime < now) {
+            targetDateTime = targetDateTime.addDays(1);
+        }
+
+        qint64 msecs = now.msecsTo(targetDateTime);
+        startShutdownTimer(msecs);
+    }
+    // 如果用户点击 "Cancel"，dialog.exec() 返回 Rejected，我们什么都不做
+}
+
+// “取消定时”的槽函数
+void MainWindow::onCancelShutdown()
+{
+    m_shutdownTimer->stop();
+    m_shutdownDateTime = QDateTime(); // 重置为无效时间
+    m_trayIcon->setToolTip("MusicPlayer"); // 恢复默认提示
+    m_cancelShutdownAction->setEnabled(false); // 禁用“取消”按钮
+    QMessageBox::information(this, "提示", "定时关机已取消。");
+}
+
+// 定时器触发时，执行真正的关机命令
+void MainWindow::onShutdownTimerTimeout()
+{
+    QString command;
+    QStringList args;
+
+#if defined(Q_OS_WIN)
+    command = "shutdown";
+    args << "/s" << "/t" << "0"; // /s: 关机, /t 0: 立即
+#elif defined(Q_OS_MAC)
+    command = "shutdown";
+    args << "-h" << "now"; // -h: 关机, now: 立即
+#elif defined(Q_OS_LINUX)
+    command = "shutdown";
+    args << "-h" << "now";
+#endif
+
+    if (!command.isEmpty()) {
+        // 使用 startDetached 启动命令，这样即使我们的播放器被关闭，
+        // 关机命令也能继续执行。
+        m_shutdownProcess->startDetached(command, args);
     }
 }

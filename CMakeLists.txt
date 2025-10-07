@@ -29,6 +29,8 @@ add_executable(OldPlayer
     playlistlistwidget.h
     songlistwidget.cpp
     songlistwidget.h
+    customtimedialog.cpp
+    customtimedialog.h
     resources.qrc
 )
 
