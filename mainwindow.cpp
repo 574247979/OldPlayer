@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include <QVBoxLayout>
+#include <QFile>
 #include <QHBoxLayout>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -986,7 +987,9 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     if (m_songListWidget->currentItem() != nullptr) {
         contextMenu.addSeparator(); // 添加一条分割线，让UI更清晰
         QAction* deleteAction = contextMenu.addAction("删除选中的歌曲");
+        QAction* deleteFromDiskAction = contextMenu.addAction("从磁盘删除歌曲");
         connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSongClicked);
+        connect(deleteFromDiskAction, &QAction::triggered, this, &MainWindow::onDeleteSongFromDiskClicked);
     }
     
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddSongsClicked);
@@ -1067,6 +1070,131 @@ void MainWindow::onDeleteSongClicked() {
     updatePlaylistView();
     
     //更新随机列表
+    if (m_inListMode == InListMode::Random) {
+        generateShuffledPlaylist();
+    }
+}
+
+// 从磁盘删除歌曲的槽函数
+void MainWindow::onDeleteSongFromDiskClicked() {
+    // 获取所有被选中的项
+    QList<QListWidgetItem*> selectedItems = m_songListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        return;
+    }
+    
+    Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    if (!playlist) {
+        return;
+    }
+
+    // 构建要删除的歌曲列表信息
+    QStringList songNames;
+    QList<int> indicesToDelete;
+    for (QListWidgetItem* item : selectedItems) {
+        int index = item->data(Qt::UserRole).toInt();
+        indicesToDelete.append(index);
+        songNames.append(playlist->getSong(index).title);
+    }
+
+    // 显示确认警告对话框
+    QString message = QString("确定要从磁盘永久删除以下 %1 首歌曲吗？\n\n%2\n\n此操作无法撤销！")
+                          .arg(indicesToDelete.size())
+                          .arg(songNames.join("\n"));
+    
+    QMessageBox::StandardButton reply = QMessageBox::warning(
+        this,
+        "确认删除",
+        message,
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No  // 默认选择"否"，更安全
+    );
+
+    if (reply != QMessageBox::Yes) {
+        return; // 用户取消操作
+    }
+
+    // ★ 关键改进：在删除前，检查是否正在播放要删除的歌曲
+    // 如果是，先停止播放器以释放文件句柄
+    bool isPlayingInDeleteList = false;
+    bool isSamePlaylist = (m_currentPlaylistIndex == m_playingPlaylistIndex);
+    
+    if (isSamePlaylist && m_currentSongIndex >= 0) {
+        for (int index : indicesToDelete) {
+            if (index == m_currentSongIndex) {
+                isPlayingInDeleteList = true;
+                break;
+            }
+        }
+    }
+
+    // 如果正在播放的歌曲在删除列表中，先停止播放器
+    if (isPlayingInDeleteList) {
+        m_player->stop();
+        m_player->setSource(QUrl()); // 清除媒体源，彻底释放文件句柄
+    }
+
+    // 对索引进行降序排序，必须从后往前删除
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+
+    bool currentPlayerSongRemoved = false;
+    QStringList failedFiles; // 记录删除失败的文件
+
+    // 执行删除
+    for (int index : indicesToDelete) {
+        Song song = playlist->getSong(index);
+        QString filePath = song.filePath;
+
+        // 尝试从磁盘删除文件
+        QFile file(filePath);
+        if (file.exists()) {
+            if (!file.remove()) {
+                // 删除失败，记录下来
+                failedFiles.append(song.title);
+                continue; // 跳过这个文件，不从播放列表移除
+            }
+        }
+
+        // 文件删除成功（或文件已不存在），从播放列表移除
+        // 检查是否删除了正在播放的歌曲
+        if (isSamePlaylist && index == m_currentSongIndex) {
+            currentPlayerSongRemoved = true;
+        } else if (isSamePlaylist && index < m_currentSongIndex) {
+            // 如果删除的歌曲在当前播放歌曲的前面，索引要-1
+            m_currentSongIndex--;
+        }
+        playlist->removeSong(index);
+    }
+
+    // 如果有删除失败的文件，提示用户
+    if (!failedFiles.isEmpty()) {
+        QMessageBox::warning(this, "部分删除失败",
+            QString("以下文件无法删除（可能正在被占用或没有权限）：\n\n%1")
+                .arg(failedFiles.join("\n")));
+    }
+
+    // 如果当前播放的歌曲被删了，则重置播放器状态
+    if (currentPlayerSongRemoved) {
+        resetPlayerState();
+        
+        // ★ 改进：如果列表还有歌曲，自动播放下一首
+        if (playlist->songCount() > 0) {
+            // 计算新的播放索引（删除后原索引位置的歌曲）
+            int nextIndex = qMin(m_currentSongIndex, playlist->songCount() - 1);
+            if (nextIndex < 0) nextIndex = 0;
+            
+            // 延迟一小段时间后播放，确保文件句柄完全释放
+            QTimer::singleShot(100, this, [this, nextIndex]() {
+                playSong(nextIndex);
+            });
+        }
+    }
+    
+    // 更新UI
+    updateSongListView();
+    updatePlaylistView();
+    
+    // 更新随机列表
     if (m_inListMode == InListMode::Random) {
         generateShuffledPlaylist();
     }

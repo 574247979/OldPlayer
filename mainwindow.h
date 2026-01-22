@@ -92,6 +92,7 @@ private slots:
     void onCreatePlaylistClicked();
     void onDeletePlaylistClicked();
     void onDeleteSongClicked();
+    void onDeleteSongFromDiskClicked(); // 从磁盘删除歌曲
     void onPlaylistSelectionChanged();
     void onSongDoubleClicked(QListWidgetItem* item);
     void onFoldersDropped(const QList<QUrl>& urls);
