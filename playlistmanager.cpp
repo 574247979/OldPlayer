@@ -6,6 +6,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug> // 用于调试输出
+#include <algorithm>
 
 PlaylistManager::PlaylistManager(QObject* parent) : QObject(parent) {
     // 1. 确定配置文件的存储路径
@@ -126,4 +127,15 @@ void PlaylistManager::removePlaylist(int index) {
         m_playlists.removeAt(index);
         emit playlistRemoved(index);
     }
+}
+// 实现排序
+void PlaylistManager::sortPlaylistsByName() {
+    std::sort(m_playlists.begin(), m_playlists.end(), [](Playlist* a, Playlist* b) {
+        return QString::localeAwareCompare(a->getName(), b->getName()) < 0;
+    });
+}
+
+// 实现查找索引
+int PlaylistManager::getPlaylistIndex(Playlist* playlist) {
+    return m_playlists.indexOf(playlist);
 }

@@ -32,6 +32,8 @@ add_executable(OldPlayer
     customtimedialog.cpp
     customtimedialog.h
     resources.qrc
+    singleapplication.h
+    singleapplication.cpp
 )
 
 # ↓↓↓ 添加这个代码块来包含 Windows 图标资源 ↓↓↓
@@ -46,6 +48,7 @@ target_link_libraries(OldPlayer
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::Core5Compat
+    Qt6::Network
 )
 
 # Windows 平台设置

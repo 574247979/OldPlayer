@@ -18,6 +18,10 @@ public:
     
     void addPlaylist(const QString& name);
     void removePlaylist(int index);
+    // 对播放列表本身进行排序
+    void sortPlaylistsByName();
+    // 根据指针查找索引（用于排序后恢复状态）
+    int getPlaylistIndex(Playlist* playlist);
     
 signals:
     void playlistAdded(int index);

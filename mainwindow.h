@@ -19,6 +19,10 @@
 #include "playlistlistwidget.h"
 #include "songlistwidget.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 
 // 自定义 Slider 类，支持点击跳转
 class ClickableSlider : public QSlider {
@@ -69,11 +73,14 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
+    void wakeUpWindow(); 
 
 protected:
     //closeEvent 函数声明
     void closeEvent(QCloseEvent *event) override;
     void showEvent(QShowEvent *event) override;
+
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     
 private slots:
     void onPlayPauseClicked();
@@ -105,6 +112,9 @@ private slots:
     void onSetShutdownAfter60Mins();     // "60分钟后" 菜单项
     void onSetCustomShutdownTime();      // "自定义时间" 菜单项
     void onCancelShutdown();             // "取消定时" 菜单项
+
+    void onSortPlaylistsAction(); // 左侧：排序播放列表
+    void onSortSongsAction();     // 右侧：排序歌曲
     
 private:
     void setupUI();

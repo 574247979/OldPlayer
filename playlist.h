@@ -42,7 +42,7 @@ public:
     void clear();
 
     void updateSongMetaData(int index, const QString& title, const QString& artist, const QString& album);
-    
+    void sortByName();
 
 
 private:

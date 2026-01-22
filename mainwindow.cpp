@@ -8,17 +8,17 @@
 #include <QStyle>
 #include <QMediaMetaData>
 #include <QSplitter>
-#include <random>     // <--- 包含用于生成高质量随机数的头文件
-#include <algorithm>  // <--- 包含用于 shuffle 算法的头文件
-#include <QRandomGenerator> // <--- Qt 6 的随机数生成器
+#include <random>
+#include <algorithm>
+#include <QRandomGenerator> //Qt 6 的随机数生成器
 #include <QDirIterator>
 #include <QDebug>
 #include <QMenu>
 #include <QSettings>   //包含 QSettings 头文件
 #include <QSplitter>   //包含 QSplitter 的完整头文件
-#include <QAction>   // <--- 包含 QAction
-#include <QApplication> // <--- 包含 QApplication 以便调用 quit
-#include <QToolTip> // <--- 1. 包含 QToolTip 头文件
+#include <QAction>   //包含 QAction
+#include <QApplication> //调用 quit
+#include <QToolTip>
 #include <QFontDialog>
 #include <QFont>
 #include <QTimer>
@@ -213,35 +213,30 @@ void MainWindow::setupUI() {
     m_previousBtn = new QPushButton(this);
     m_previousBtn->setIcon(style()->standardIcon(QStyle::SP_MediaSkipBackward));
     m_previousBtn->setIconSize(QSize(32, 32));
-    m_previousBtn->setFixedSize(50, 50);
     connect(m_previousBtn, &QPushButton::clicked, 
             this, &MainWindow::onPreviousClicked);
     
     m_playPauseBtn = new QPushButton(this);
     m_playPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
     m_playPauseBtn->setIconSize(QSize(32, 32));
-    m_playPauseBtn->setFixedSize(50, 50);
     connect(m_playPauseBtn, &QPushButton::clicked, 
             this, &MainWindow::onPlayPauseClicked);
     
     m_nextBtn = new QPushButton(this);
     m_nextBtn->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
     m_nextBtn->setIconSize(QSize(32, 32));
-    m_nextBtn->setFixedSize(50, 50);
     connect(m_nextBtn, &QPushButton::clicked, 
             this, &MainWindow::onNextClicked);
     
     // 创建【列表内模式】按钮 (顺序/随机)
     m_inListModeBtn = new QPushButton(this);
     m_inListModeBtn->setIconSize(QSize(28, 28));
-    m_inListModeBtn->setFixedSize(50, 50);
     connect(m_inListModeBtn, &QPushButton::clicked,
             this, &MainWindow::onInListModeClicked);
 
     // 创建【列表间模式】按钮 (循环/前进等)
     m_crossListModeBtn = new QPushButton(this);
     m_crossListModeBtn->setIconSize(QSize(28, 28));
-    m_crossListModeBtn->setFixedSize(50, 50);
     connect(m_crossListModeBtn, &QPushButton::clicked,
             this, &MainWindow::onCrossListModeClicked);
 
@@ -261,7 +256,6 @@ void MainWindow::setupUI() {
     m_volumeSlider = new ClickableSlider(Qt::Horizontal, this);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(70);
-    m_volumeSlider->setMaximumWidth(150);
     connect(m_volumeSlider, &ClickableSlider::valueChanged,
             this, &MainWindow::onVolumeChanged);
     
@@ -947,14 +941,25 @@ void MainWindow::onPlaylistContextMenuRequested(const QPoint& pos) {
     QAction* createAction = contextMenu.addAction("新建播放列表");
     QAction* deleteAction = contextMenu.addAction("删除选中列表");
 
+    // 左侧菜单：排序播放列表
+    contextMenu.addSeparator();
+    QAction* sortAction = contextMenu.addAction("列表按名称排序");
+
     // 逻辑判断：只有当选中了一个列表，并且总列表数大于1时，才允许删除
     if (m_playlistListWidget->currentRow() < 0 || m_playlistManager->playlistCount() <= 1) {
         deleteAction->setEnabled(false);
     }
 
+    // 如果列表总数少于2个，也没必要排序
+    if (m_playlistManager->playlistCount() < 2) {
+        sortAction->setEnabled(false);
+    }
+
     // 将动作的 triggered 信号连接到已有的槽函数
     connect(createAction, &QAction::triggered, this, &MainWindow::onCreatePlaylistClicked);
     connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeletePlaylistClicked);
+    // 连接到“排序播放列表”的槽函数
+    connect(sortAction, &QAction::triggered, this, &MainWindow::onSortPlaylistsAction);
 
     // 在鼠标光标位置显示菜单
     // mapToGlobal 将控件的局部坐标转换为屏幕的全局坐标
@@ -966,6 +971,16 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     QMenu contextMenu(this);
 
     QAction* addAction = contextMenu.addAction("添加歌曲...");
+
+    // 右侧菜单：排序歌曲
+    contextMenu.addSeparator();
+    QAction* sortAction = contextMenu.addAction("歌曲按名称排序");
+
+    // 获取当前列表
+    Playlist* currentPlaylist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    if (!currentPlaylist || currentPlaylist->songCount() < 2) {
+        sortAction->setEnabled(false);
+    }
     
     // 只有当用户确实选中了一首歌曲时，才显示删除相关的选项
     if (m_songListWidget->currentItem() != nullptr) {
@@ -975,6 +990,8 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     }
     
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddSongsClicked);
+    // 连接到“排序歌曲”的槽函数
+    connect(sortAction, &QAction::triggered, this, &MainWindow::onSortSongsAction);
     
     contextMenu.exec(m_songListWidget->mapToGlobal(pos));
 }
@@ -1200,4 +1217,140 @@ void MainWindow::onShutdownTimerTimeout()
         // 关机命令也能继续执行。
         m_shutdownProcess->startDetached(command, args);
     }
+}
+
+// 重写 nativeEvent 以捕获 Windows 原生事件
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    // 只处理 Windows 平台的消息
+#ifdef Q_OS_WIN
+    // 将通用的 message 指针转换为 Windows 消息结构体指针
+    MSG* msg = static_cast<MSG*>(message);
+
+    // 只关心 WM_POWERBROADCAST 消息
+    if (msg->message == WM_POWERBROADCAST)
+    {
+        // PBT_APMRESUMEAUTOMATIC 事件表示系统已从睡眠或休眠中唤醒
+        if (msg->wParam == PBT_APMRESUMEAUTOMATIC)
+        {
+            qDebug() << "检测到系统已从睡眠状态唤醒。";
+
+            // 核心缓解策略
+            // 检查播放器是否正在播放
+            if (m_player->playbackState() == QMediaPlayer::PlayingState)
+            {
+                qDebug() << "播放器正在播放，尝试重置以避免卡顿。";
+                
+                //获取当前播放位置
+                qint64 currentPosition = m_player->position();
+                
+                //暂停播放器
+                m_player->pause();
+
+                //使用 QTimer 做一个非常短暂的延迟
+                //    这给了声卡和驱动一点点时间来完全初始化
+                QTimer::singleShot(250, this, [this, currentPosition]() {
+                    //在延迟后，重新设置播放位置并继续播放
+                    m_player->setPosition(currentPosition);
+                    m_player->play();
+                    qDebug() << "播放器状态已重置。";
+                });
+            }
+        }
+    }
+#endif
+
+    // 调用基类的实现，确保其他事件能被正常处理
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+
+// --- 左侧：排序播放列表本身 ---
+void MainWindow::onSortPlaylistsAction() {
+    // 1. 保存当前状态
+    // 我们需要记录下“当前正在看的列表”和“当前正在播放的列表”的指针
+    // 因为排序后，它们的索引(int)会发生变化
+    Playlist* viewingPlaylist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    
+    // m_playingPlaylistIndex 是我们之前为了高亮引入的变量
+    Playlist* playingPlaylist = nullptr;
+    if (m_playingPlaylistIndex >= 0) {
+        playingPlaylist = m_playlistManager->getPlaylist(m_playingPlaylistIndex);
+    }
+
+    // 2. 执行排序 (PlaylistManager 中新加的函数)
+    m_playlistManager->sortPlaylistsByName();
+
+    // 3. 恢复索引
+    // 找到刚才那个列表现在跑到哪里去了
+    if (viewingPlaylist) {
+        m_currentPlaylistIndex = m_playlistManager->getPlaylistIndex(viewingPlaylist);
+    }
+    if (playingPlaylist) {
+        m_playingPlaylistIndex = m_playlistManager->getPlaylistIndex(playingPlaylist);
+    }
+
+    // 4. 彻底刷新左侧列表UI
+    updatePlaylistView();
+    
+    // 恢复选中状态
+    if (m_currentPlaylistIndex >= 0) {
+        m_playlistListWidget->setCurrentRow(m_currentPlaylistIndex);
+    }
+}
+
+// --- 右侧：排序当前列表里的歌曲 ---
+void MainWindow::onSortSongsAction() {
+    // 1. 获取当前正在查看的列表
+    Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    if (!playlist || playlist->songCount() == 0) return;
+
+    // 2. 保存播放状态
+    // 只有当“正在查看的列表”就是“正在播放的列表”时，才需要处理歌曲索引
+    QString currentPlayingFilePath;
+    bool isSortingPlayingList = (m_currentPlaylistIndex == m_playingPlaylistIndex);
+    
+    if (isSortingPlayingList && m_currentSongIndex >= 0) {
+        // 记住正在播放的那首歌的路径
+        currentPlayingFilePath = playlist->getSong(m_currentSongIndex).filePath;
+    }
+
+    // 3. 执行排序 (Playlist 类中已有的函数)
+    playlist->sortByName();
+
+    // 4. 恢复播放索引
+    if (isSortingPlayingList && !currentPlayingFilePath.isEmpty()) {
+        const QList<Song>& songs = playlist->getSongs();
+        for (int i = 0; i < songs.size(); ++i) {
+            if (songs[i].filePath == currentPlayingFilePath) {
+                m_currentSongIndex = i; // 找到它在新列表中的位置
+                break;
+            }
+        }
+    }
+
+    // 5. 刷新右侧歌曲列表UI
+    updateSongListView();
+    
+    // 6. 如果是随机模式，列表变了，随机种子也要重置
+    if (m_inListMode == InListMode::Random && isSortingPlayingList) {
+        generateShuffledPlaylist();
+    }
+}
+
+// 单实例实现
+void MainWindow::wakeUpWindow()
+{
+    // 确保窗口可见
+    if (!this->isVisible()) {
+        this->show();
+    }
+    
+    // 恢复窗口状态（如果是最小化，则恢复正常）
+    if (this->isMinimized()) {
+        this->setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    }
+    
+    // 提升并激活窗口
+    this->raise();
+    this->activateWindow();
 }

@@ -1,4 +1,4 @@
-#include <QApplication>
+#include "singleapplication.h"
 #include <QFile>
 #include "mainwindow.h"
 
@@ -10,10 +10,23 @@
 int main(int argc, char *argv[]) {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-    QCoreApplication::setOrganizationName("OldCheung"); // 你可以改成自己的名字
-    QCoreApplication::setApplicationName("OldPlayer"); // 你的应用名
 
-    QApplication app(argc, argv);
+    // 定义一个全系统唯一的 Key，通常用包名或应用名
+    const QString APP_KEY = "OldPlayerMax_Unique_Instance_Key";
+
+    // 1. 使用 SingleApplication 替代 QApplication
+    SingleApplication app(argc, argv, APP_KEY);
+
+    // 2. 检查是否已经有实例在运行
+    if (app.isRunning()) {
+        // 如果正在运行，发送唤醒消息给旧实例
+        app.sendMessage("WAKE_UP");
+        // 然后直接退出当前新实例
+        return 0; 
+    }
+
+    QCoreApplication::setOrganizationName("OldCheung"); // 作者
+    QCoreApplication::setApplicationName("OldPlayer"); // 应用名
     
     #ifdef Q_OS_WIN
     SetConsoleOutputCP(CP_UTF8);
@@ -86,6 +99,8 @@ int main(int argc, char *argv[]) {
     app.setStyleSheet(qss);
     
     MainWindow window;
+    // 当第二个实例试图启动时，SingleApplication 会收到消息并发射 showUp
+    QObject::connect(&app, &SingleApplication::showUp, &window, &MainWindow::wakeUpWindow);
     window.show();
     
     return app.exec();
