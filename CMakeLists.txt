@@ -31,6 +31,8 @@ add_executable(OldPlayer
     songlistwidget.h
     customtimedialog.cpp
     customtimedialog.h
+    fontsettingsdialog.cpp
+    fontsettingsdialog.h
     resources.qrc
     singleapplication.h
     singleapplication.cpp

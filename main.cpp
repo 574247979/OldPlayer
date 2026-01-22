@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
             padding: 5px;
         }
         QListWidget::item {
-            padding: 5px;
+            padding: 1px 5px;
         }
         QListWidget::item:selected {
             background-color: #88C0D0;

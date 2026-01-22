@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include <QVBoxLayout>
 #include <QFile>
 #include <QHBoxLayout>
@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QProcess>
 #include "customtimedialog.h"
+#include "fontsettingsdialog.h"
 #include <QMessageBox>
 
 MainWindow::MainWindow(QWidget* parent)
@@ -986,8 +987,8 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     // 只有当用户确实选中了一首歌曲时，才显示删除相关的选项
     if (m_songListWidget->currentItem() != nullptr) {
         contextMenu.addSeparator(); // 添加一条分割线，让UI更清晰
-        QAction* deleteAction = contextMenu.addAction("删除选中的歌曲");
-        QAction* deleteFromDiskAction = contextMenu.addAction("从磁盘删除歌曲");
+        QAction* deleteAction = contextMenu.addAction("删除列表中的歌曲");
+        QAction* deleteFromDiskAction = contextMenu.addAction("删除磁盘中的歌曲");
         connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSongClicked);
         connect(deleteFromDiskAction, &QAction::triggered, this, &MainWindow::onDeleteSongFromDiskClicked);
     }
@@ -1235,25 +1236,20 @@ void MainWindow::showEvent(QShowEvent *event)
 
 void MainWindow::onShowFontSettings()
 {
-    // a. 获取当前列表控件的字体作为对话框的默认选项
+    // 获取当前列表控件的字体作为对话框的默认选项
     QFont currentFont = m_playlistListWidget->font();
 
-    bool ok;
-    QFont selectedFont = QFontDialog::getFont(
-        &ok,
-        currentFont,
-        this,
-        "选择列表字体"
-    );
+    // 使用自定义的中文字体选择对话框
+    FontSettingsDialog dialog(currentFont, this);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        QFont selectedFont = dialog.selectedFont();
 
-    // c. 如果用户点击了“确定”
-    if (ok) {
-        // i. 将新字体分别应用到两个列表控件
+        // 将新字体分别应用到两个列表控件
         m_playlistListWidget->setFont(selectedFont);
         m_songListWidget->setFont(selectedFont);
 
-        // ii. 使用 QSettings 立即保存用户的选择
-        //     使用一个新的键名 "listFont" 以区别于之前的全局设置
+        // 使用 QSettings 立即保存用户的选择
         QSettings settings;
         settings.setValue("listFont", selectedFont);
     }
