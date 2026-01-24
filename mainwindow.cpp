@@ -988,6 +988,10 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     if (m_songListWidget->currentItem() != nullptr) {
         contextMenu.addSeparator(); // 添加一条分割线，让UI更清晰
         
+        // 编辑歌曲信息选项
+        QAction* editInfoAction = contextMenu.addAction("编辑歌曲信息...");
+        connect(editInfoAction, &QAction::triggered, this, &MainWindow::onEditSongInfoClicked);
+        
         // 音频转码选项
         QAction* transcodeAction = contextMenu.addAction("音频转码...");
         connect(transcodeAction, &QAction::triggered, this, &MainWindow::onTranscodeAudioClicked);
@@ -1524,4 +1528,42 @@ void MainWindow::onTranscodeAudioClicked() {
     // 创建并显示转码对话框
     TranscodeDialog dialog(filePaths, this);
     dialog.exec();
+}
+
+// 编辑歌曲信息槽函数
+void MainWindow::onEditSongInfoClicked() {
+    // 获取当前选中的歌曲
+    QListWidgetItem* currentItem = m_songListWidget->currentItem();
+    if (!currentItem) {
+        return;
+    }
+    
+    Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    if (!playlist) {
+        return;
+    }
+    
+    int songIndex = currentItem->data(Qt::UserRole).toInt();
+    Song song = playlist->getSong(songIndex);
+    
+    // 创建并显示歌曲信息编辑对话框
+    SongInfoDialog dialog(song.filePath, this);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        // 如果用户点击了保存，更新播放列表中的歌曲信息
+        playlist->updateSongMetaData(songIndex, 
+                                     dialog.title(), 
+                                     dialog.artist(), 
+                                     dialog.album());
+        
+        // 刷新歌曲列表视图
+        updateSongListView();
+        
+        // 如果正在播放的歌曲被修改了，更新当前显示的信息
+        if (m_currentPlaylistIndex == m_playingPlaylistIndex && 
+            songIndex == m_currentSongIndex) {
+            m_songTitleLabel->setText(dialog.title());
+            m_songArtistLabel->setText(dialog.artist());
+        }
+    }
 }
