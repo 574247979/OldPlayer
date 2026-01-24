@@ -33,6 +33,8 @@ add_executable(OldPlayer
     customtimedialog.h
     fontsettingsdialog.cpp
     fontsettingsdialog.h
+    transcodedialog.cpp
+    transcodedialog.h
     resources.qrc
     singleapplication.h
     singleapplication.cpp

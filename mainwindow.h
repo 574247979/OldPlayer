@@ -18,6 +18,7 @@
 #include "playlistmanager.h"
 #include "playlistlistwidget.h"
 #include "songlistwidget.h"
+#include "transcodedialog.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -116,6 +117,7 @@ private slots:
 
     void onSortPlaylistsAction(); // 左侧：排序播放列表
     void onSortSongsAction();     // 右侧：排序歌曲
+    void onTranscodeAudioClicked(); // 音频转码
     
 private:
     void setupUI();

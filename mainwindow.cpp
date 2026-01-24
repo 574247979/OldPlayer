@@ -987,6 +987,12 @@ void MainWindow::onSongListContextMenuRequested(const QPoint& pos) {
     // 只有当用户确实选中了一首歌曲时，才显示删除相关的选项
     if (m_songListWidget->currentItem() != nullptr) {
         contextMenu.addSeparator(); // 添加一条分割线，让UI更清晰
+        
+        // 音频转码选项
+        QAction* transcodeAction = contextMenu.addAction("音频转码...");
+        connect(transcodeAction, &QAction::triggered, this, &MainWindow::onTranscodeAudioClicked);
+        
+        contextMenu.addSeparator();
         QAction* deleteAction = contextMenu.addAction("删除列表中的歌曲");
         QAction* deleteFromDiskAction = contextMenu.addAction("删除磁盘中的歌曲");
         connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSongClicked);
@@ -1061,9 +1067,22 @@ void MainWindow::onDeleteSongClicked() {
         playlist->removeSong(index);
     }
     
-    //如果当前播放的歌曲被删了，则重置播放器
+    //如果当前播放的歌曲被删了，自动播放下一首
     if (currentPlayerSongRemoved) {
+        // 先保存要播放的下一首索引（在重置之前）
+        int nextIndex = m_currentSongIndex;
+        if (nextIndex >= playlist->songCount()) {
+            nextIndex = playlist->songCount() - 1;
+        }
+        
         resetPlayerState();
+        
+        // 如果列表还有歌曲，自动播放下一首
+        if (playlist->songCount() > 0 && nextIndex >= 0) {
+            QTimer::singleShot(50, this, [this, nextIndex]() {
+                playSong(nextIndex);
+            });
+        }
     }
     
     //更新UI
@@ -1174,16 +1193,18 @@ void MainWindow::onDeleteSongFromDiskClicked() {
                 .arg(failedFiles.join("\n")));
     }
 
-    // 如果当前播放的歌曲被删了，则重置播放器状态
+    // 如果当前播放的歌曲被删了，自动播放下一首
     if (currentPlayerSongRemoved) {
+        // 先保存要播放的下一首索引（在重置之前）
+        int nextIndex = m_currentSongIndex;
+        if (nextIndex >= playlist->songCount()) {
+            nextIndex = playlist->songCount() - 1;
+        }
+        
         resetPlayerState();
         
-        // ★ 改进：如果列表还有歌曲，自动播放下一首
-        if (playlist->songCount() > 0) {
-            // 计算新的播放索引（删除后原索引位置的歌曲）
-            int nextIndex = qMin(m_currentSongIndex, playlist->songCount() - 1);
-            if (nextIndex < 0) nextIndex = 0;
-            
+        // 如果列表还有歌曲，自动播放下一首
+        if (playlist->songCount() > 0 && nextIndex >= 0) {
             // 延迟一小段时间后播放，确保文件句柄完全释放
             QTimer::singleShot(100, this, [this, nextIndex]() {
                 playSong(nextIndex);
@@ -1477,4 +1498,30 @@ void MainWindow::wakeUpWindow()
     // 提升并激活窗口
     this->raise();
     this->activateWindow();
+}
+
+// 音频转码槽函数
+void MainWindow::onTranscodeAudioClicked() {
+    // 获取所有选中的歌曲
+    QList<QListWidgetItem*> selectedItems = m_songListWidget->selectedItems();
+    if (selectedItems.isEmpty()) {
+        return;
+    }
+    
+    Playlist* playlist = m_playlistManager->getPlaylist(m_currentPlaylistIndex);
+    if (!playlist) {
+        return;
+    }
+    
+    // 收集所有选中歌曲的文件路径
+    QStringList filePaths;
+    for (QListWidgetItem* item : selectedItems) {
+        int index = item->data(Qt::UserRole).toInt();
+        Song song = playlist->getSong(index);
+        filePaths.append(song.filePath);
+    }
+    
+    // 创建并显示转码对话框
+    TranscodeDialog dialog(filePaths, this);
+    dialog.exec();
 }
