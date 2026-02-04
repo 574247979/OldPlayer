@@ -1,6 +1,6 @@
 # OldPlayer - 一个基于 Qt6 的现代桌面音乐播放器
 
-<img width="430" height="575" alt="OldPlayer Screenshot" src="https://github.com/user-attachments/assets/d9d62d94-7e16-4371-8f18-36bd8f4c5960" />
+<img width="470" height="850" alt="image" src="https://github.com/user-attachments/assets/eae68cf3-540f-4d5c-87ef-d143cb88cdb4" />
 
 这是一个使用 C++ 和 Qt6 框架构建的功能丰富的桌面音乐播放器。它的灵感来源于经典的桌面播放器，拥有简洁的界面和强大的功能。
 
