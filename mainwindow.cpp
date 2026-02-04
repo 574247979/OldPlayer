@@ -28,6 +28,10 @@
 #include "fontsettingsdialog.h"
 #include <QMessageBox>
 
+// TagLib 头文件
+#include <taglib/fileref.h>
+#include <taglib/tag.h>
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_currentPlaylistIndex(0)
@@ -75,11 +79,6 @@ MainWindow::MainWindow(QWidget* parent)
     //使用 Qt 资源系统中的路径
     setWindowIcon(QIcon(":/icons/appicon.ico"));
 
-    //创建托盘图标的右键菜单
-    m_restoreAction = new QAction("显示/隐藏", this);
-    connect(m_restoreAction, &QAction::triggered, this, [this]() {
-        setVisible(!isVisible()); // 切换窗口的可见性
-    });
 
     QAction* fontAction = new QAction("字体...", this);
     connect(fontAction, &QAction::triggered, this, &MainWindow::onShowFontSettings);
@@ -110,8 +109,80 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_quitAction, &QAction::triggered, qApp, &QApplication::quit); 
 
     m_trayMenu = new QMenu(this);
-    m_trayMenu->addAction(m_restoreAction);
+    
+    // === 托盘菜单播放控制区域 ===
+    // 1. 歌曲名标签
+    QWidget* songLabelWidget = new QWidget();
+    QHBoxLayout* songLabelLayout = new QHBoxLayout(songLabelWidget);
+    songLabelLayout->setContentsMargins(10, 5, 10, 5);
+    m_traySongLabel = new QLabel("未播放");
+    m_traySongLabel->setStyleSheet("font-weight: bold; font-size: 12px;");
+    m_traySongLabel->setAlignment(Qt::AlignCenter);
+    m_traySongLabel->setMinimumWidth(180);
+    songLabelLayout->addWidget(m_traySongLabel);
+    QWidgetAction* songLabelAction = new QWidgetAction(this);
+    songLabelAction->setDefaultWidget(songLabelWidget);
+    m_trayMenu->addAction(songLabelAction);
+    
+    // 2. 播放控制按钮（上一曲、播放/暂停、下一曲）
+    QWidget* controlWidget = new QWidget();
+    QHBoxLayout* controlLayout = new QHBoxLayout(controlWidget);
+    controlLayout->setContentsMargins(10, 5, 10, 5);
+    controlLayout->setSpacing(5);
+    
+    QPushButton* trayPrevBtn = new QPushButton();
+    trayPrevBtn->setIcon(style()->standardIcon(QStyle::SP_MediaSkipBackward));
+    trayPrevBtn->setFixedSize(32, 32);
+    trayPrevBtn->setFlat(true);
+    connect(trayPrevBtn, &QPushButton::clicked, this, &MainWindow::onPreviousClicked);
+    
+    QPushButton* trayPlayPauseBtn = new QPushButton();
+    trayPlayPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    trayPlayPauseBtn->setFixedSize(36, 36);
+    trayPlayPauseBtn->setFlat(true);
+    trayPlayPauseBtn->setObjectName("trayPlayPauseBtn");
+    connect(trayPlayPauseBtn, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
+    
+    QPushButton* trayNextBtn = new QPushButton();
+    trayNextBtn->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
+    trayNextBtn->setFixedSize(32, 32);
+    trayNextBtn->setFlat(true);
+    connect(trayNextBtn, &QPushButton::clicked, this, &MainWindow::onNextClicked);
+    
+    controlLayout->addStretch();
+    controlLayout->addWidget(trayPrevBtn);
+    controlLayout->addWidget(trayPlayPauseBtn);
+    controlLayout->addWidget(trayNextBtn);
+    controlLayout->addStretch();
+    
+    QWidgetAction* controlAction = new QWidgetAction(this);
+    controlAction->setDefaultWidget(controlWidget);
+    m_trayMenu->addAction(controlAction);
+    
+    // 3. 音量滑块
+    QWidget* volumeWidget = new QWidget();
+    QHBoxLayout* volumeLayout = new QHBoxLayout(volumeWidget);
+    volumeLayout->setContentsMargins(10, 5, 10, 5);
+    
+    QLabel* volumeIcon = new QLabel();
+    volumeIcon->setPixmap(style()->standardIcon(QStyle::SP_MediaVolume).pixmap(16, 16));
+    
+    m_trayVolumeSlider = new QSlider(Qt::Horizontal);
+    m_trayVolumeSlider->setRange(0, 100);
+    m_trayVolumeSlider->setValue(70);
+    m_trayVolumeSlider->setMinimumWidth(120);
+    connect(m_trayVolumeSlider, &QSlider::valueChanged, this, &MainWindow::onVolumeChanged);
+    
+    volumeLayout->addWidget(volumeIcon);
+    volumeLayout->addWidget(m_trayVolumeSlider);
+    
+    QWidgetAction* volumeAction = new QWidgetAction(this);
+    volumeAction->setDefaultWidget(volumeWidget);
+    m_trayMenu->addAction(volumeAction);
+    
     m_trayMenu->addSeparator();
+    // === 播放控制区域结束 ===
+    
     m_trayMenu->addMenu(settingsMenu); // <--- 将“设置”子菜单添加到主菜单
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(m_quitAction);
@@ -119,7 +190,7 @@ MainWindow::MainWindow(QWidget* parent)
     //创建系统托盘图标对象
     m_trayIcon = new QSystemTrayIcon(this);
     m_trayIcon->setIcon(QIcon(":/icons/appicon.ico"));
-    m_trayIcon->setToolTip("MusicPlayer");
+    m_trayIcon->setToolTip("OldPlayer");
     m_trayIcon->setContextMenu(m_trayMenu); // <-- 将我们正确创建的菜单设置给托盘
 
     //连接托盘图标的点击信号
@@ -146,7 +217,9 @@ MainWindow::MainWindow(QWidget* parent)
     m_playlistListWidget->setFont(savedFont);
     m_songListWidget->setFont(savedFont);
 
-    m_volumeSlider->setValue(settings.value("volume", 70).toInt());
+    int savedVolume = settings.value("volume", 70).toInt();
+    m_volumeSlider->setValue(savedVolume);
+    m_trayVolumeSlider->setValue(savedVolume);
 
     //加载播放模式
     //加载列表内模式 (顺序/随机)
@@ -317,6 +390,55 @@ void MainWindow::setupUI() {
     
     songListLayout->addWidget(m_songListWidget);
     rightLayout->addWidget(songListGroup);
+    
+    // 现代滚动条样式
+    QString modernScrollBarStyle = R"(
+        QScrollBar:vertical {
+            background: transparent;
+            width: 8px;
+            margin: 0;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:vertical {
+            background: #888888;
+            min-height: 30px;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #666666;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0;
+            background: none;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
+        QScrollBar:horizontal {
+            background: transparent;
+            height: 8px;
+            margin: 0;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #888888;
+            min-width: 30px;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background: #666666;
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            width: 0;
+            background: none;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
+        }
+    )";
+    
+    m_playlistListWidget->setStyleSheet(modernScrollBarStyle);
+    m_songListWidget->setStyleSheet(modernScrollBarStyle);
 
     // 将左右面板添加到 Splitter
     m_mainSplitter->addWidget(leftPanel);
@@ -489,11 +611,8 @@ void MainWindow::updateSongListView() {
 
     int index = 0;
     for (const Song& song : playlist->getSongs()) {
-        // --- 1. 确保这段代码存在 ---
-        QString itemText = QString("%1. %2 - %3")
-            .arg(index + 1)
-            .arg(song.title)
-            .arg(song.artist);
+        // 显示格式: 歌手 - 歌曲名
+        QString itemText = QString("%1 - %2").arg(song.artist, song.title);
         
         // --- 2. 创建列表项 ---
         QListWidgetItem* item = new QListWidgetItem(itemText);
@@ -520,6 +639,41 @@ void MainWindow::updateSongListView() {
     }
 }
 
+// 读取播放列表内所有歌曲的元数据
+void MainWindow::loadPlaylistMetaData(int playlistIndex) {
+    Playlist* playlist = m_playlistManager->getPlaylist(playlistIndex);
+    if (!playlist) return;
+    
+    const QList<Song>& songs = playlist->getSongs();
+    for (int i = 0; i < songs.size(); ++i) {
+        const Song& song = songs[i];
+        
+        // 使用 TagLib 读取文件元数据
+        TagLib::FileRef file(song.filePath.toStdWString().c_str());
+        
+        if (!file.isNull() && file.tag()) {
+            TagLib::Tag* tag = file.tag();
+            
+            QString title = QString::fromStdWString(tag->title().toWString());
+            QString artist = QString::fromStdWString(tag->artist().toWString());
+            QString album = QString::fromStdWString(tag->album().toWString());
+            
+            // 如果元数据为空，使用文件名作为标题
+            if (title.isEmpty()) {
+                title = song.title;  // 保持原来从文件名提取的标题
+            }
+            if (artist.isEmpty()) {
+                artist = "未知艺术家";
+            }
+            if (album.isEmpty()) {
+                album = "未知专辑";
+            }
+            
+            // 更新歌曲元数据
+            playlist->updateSongMetaData(i, title, artist, album);
+        }
+    }
+}
 
 void MainWindow::playSong(int index) {
     m_playingPlaylistIndex = m_currentPlaylistIndex; 
@@ -540,6 +694,12 @@ void MainWindow::playSong(int index) {
     m_songTitleLabel->setText(song.title);
     m_songArtistLabel->setText(song.artist);
     
+    // 更新托盘菜单的歌曲名
+    m_traySongLabel->setText(song.title);
+    
+    // 更新托盘图标悬浮提示
+    m_trayIcon->setToolTip(QString("%1 - %2").arg(song.artist, song.title));
+    
     //直接调用 updateSongListView()
     // 这个函数现在已经包含了高亮和滚动的所有逻辑，一举两得
     updateSongListView();
@@ -548,10 +708,19 @@ void MainWindow::playSong(int index) {
 }
 
 void MainWindow::updatePlayPauseButton() {
+    // 更新托盘菜单的播放/暂停按钮图标
+    QPushButton* trayPlayPauseBtn = m_trayMenu->findChild<QPushButton*>("trayPlayPauseBtn");
+    
     if (m_player->playbackState() == QMediaPlayer::PlayingState) {
         m_playPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+        if (trayPlayPauseBtn) {
+            trayPlayPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+        }
     } else {
         m_playPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        if (trayPlayPauseBtn) {
+            trayPlayPauseBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        }
     }
 }
 
@@ -788,6 +957,9 @@ void MainWindow::onPlaylistSelectionChanged() {
     
     // 更新当前播放列表的索引
     m_currentPlaylistIndex = index;
+    
+    // 读取该播放列表内所有歌曲的元数据
+    loadPlaylistMetaData(index);
 
     // 根据新的 m_currentPlaylistIndex 更新右侧的歌曲列表视图
     updateSongListView();
@@ -816,7 +988,19 @@ void MainWindow::onVolumeChanged(int value) {
     // a. 设置播放器的实际音量
     m_audioOutput->setVolume(value / 100.0);
 
-    // b. 在当前鼠标光标位置显示一个临时的百分比提示
+    // b. 同步两个音量滑块的值（防止循环调用）
+    if (m_volumeSlider->value() != value) {
+        m_volumeSlider->blockSignals(true);
+        m_volumeSlider->setValue(value);
+        m_volumeSlider->blockSignals(false);
+    }
+    if (m_trayVolumeSlider && m_trayVolumeSlider->value() != value) {
+        m_trayVolumeSlider->blockSignals(true);
+        m_trayVolumeSlider->setValue(value);
+        m_trayVolumeSlider->blockSignals(false);
+    }
+
+    // c. 在当前鼠标光标位置显示一个临时的百分比提示
     QString tooltipText = QString("音量: %1%").arg(value);
     QToolTip::showText(QCursor::pos(), tooltipText, m_volumeSlider);
 }

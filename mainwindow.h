@@ -13,6 +13,7 @@
 #include <QListWidgetItem>
 #include <QCloseEvent>
 #include <QSystemTrayIcon>
+#include <QWidgetAction>
 #include <QShowEvent>
 #include <QDateTime>
 #include "playlistmanager.h"
@@ -125,6 +126,7 @@ private:
     void setupUI();
     void updatePlaylistView();
     void updateSongListView();
+    void loadPlaylistMetaData(int playlistIndex);  // 读取播放列表内歌曲元数据
     void playSong(int index);
     void updatePlayPauseButton();
     void resetPlayerState();
@@ -153,8 +155,15 @@ private:
 
     QSystemTrayIcon* m_trayIcon;
     QMenu* m_trayMenu;
-    QAction* m_restoreAction;
     QAction* m_quitAction;
+    
+    // 托盘菜单播放控制
+    QLabel* m_traySongLabel;
+    QAction* m_trayPreviousAction;
+    QAction* m_trayPlayPauseAction;
+    QAction* m_trayNextAction;
+    QSlider* m_trayVolumeSlider;
+    void updateTrayMenu();  // 更新托盘菜单状态
     
     //成员变量存储高亮字体
     QFont m_playingSongFont;

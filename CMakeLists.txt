@@ -18,12 +18,9 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia Core5Compat Network)
 
 # ==========================================
-# TagLib 路径配置 (核心修改部分)
+# TagLib 路径配置
 # ==========================================
-# 1. 定义基础路径
 set(TAGLIB_DIR "${CMAKE_SOURCE_DIR}/libs/taglib")
-
-# 2. 打印路径日志，方便调试 (在输出窗口可以看到)
 message(STATUS "TagLib Include Path: ${TAGLIB_DIR}/include")
 message(STATUS "TagLib Lib Path: ${TAGLIB_DIR}/lib")
 

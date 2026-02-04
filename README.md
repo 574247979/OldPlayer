@@ -8,7 +8,7 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 ---
 
-## ✨ 主要功能
+## ✨ 主要功能 (Features)
 
 ### 🎵 播放控制
 *   **多种播放模式**:
@@ -50,7 +50,7 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 ---
 
-## 🛠️ 技术栈
+## 🛠️ 技术栈 (Tech Stack)
 
 | 类别 | 技术 |
 |------|------|
@@ -62,15 +62,15 @@ A feature-rich desktop music player built with C++ and the Qt6 framework. Inspir
 
 ---
 
-## 🚀 如何从源码构建
+## 🚀 如何从源码构建 (Building from Source)
 
-### 先决条件
+### 先决条件 (Prerequisites)
 
 *   [Qt 6](https://www.qt.io/download) (本项目使用 MinGW 编译器套件)
 *   支持 C++17 的编译器 (如 GCC/MinGW)
 *   CMake
 
-### 构建步骤
+### 构建步骤 (Build Steps)
 
 #### 1. 使用 Qt Creator (推荐)
 
@@ -101,7 +101,7 @@ cmake --build .
 
 ---
 
-## 📦 打包与部署
+## 📦 打包与部署 (Deployment)
 
 本项目使用 Qt 官方工具 `windeployqt` 进行打包。
 
@@ -116,7 +116,7 @@ cmake --build .
 
 ---
 
-## 📜 开源许可
+## 📜 开源许可 (License)
 
 本项目采用 [MIT License](LICENSE.txt) 开源许可。
 
