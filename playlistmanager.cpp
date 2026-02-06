@@ -6,11 +6,12 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug> // 用于调试输出
+#include <QCoreApplication>
 #include <algorithm>
 
 PlaylistManager::PlaylistManager(QObject* parent) : QObject(parent) {
-    // 1. 确定配置文件的存储路径
-    QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    // 1. 确定配置文件的存储路径（软件目录下的 config 文件夹）
+    QString dataPath = QCoreApplication::applicationDirPath() + "/config";
     QDir dir(dataPath);
     if (!dir.exists()) {
         dir.mkpath(".");

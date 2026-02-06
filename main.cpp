@@ -1,5 +1,7 @@
 #include "singleapplication.h"
 #include <QFile>
+#include <QDir>
+#include <QSettings>
 #include "mainwindow.h"
 
 // 包含 Windows 头文件（仅在 Windows 平台）
@@ -27,6 +29,15 @@ int main(int argc, char *argv[]) {
 
     QCoreApplication::setOrganizationName("OldCheung"); // 作者
     QCoreApplication::setApplicationName("OldPlayer"); // 应用名
+    
+    // 设置配置文件保存到软件目录下的 config 文件夹
+    QString configPath = QCoreApplication::applicationDirPath() + "/config";
+    QDir configDir(configPath);
+    if (!configDir.exists()) {
+        configDir.mkpath(".");
+    }
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, configPath);
     
     #ifdef Q_OS_WIN
     SetConsoleOutputCP(CP_UTF8);

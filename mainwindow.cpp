@@ -106,7 +106,18 @@ MainWindow::MainWindow(QWidget* parent)
     settingsMenu->addMenu(shutdownMenu);
     
     m_quitAction = new QAction("退出", this);
-    connect(m_quitAction, &QAction::triggered, qApp, &QApplication::quit); 
+    connect(m_quitAction, &QAction::triggered, this, [this]() {
+        // 先保存设置再退出
+        QSettings settings;
+        settings.setValue("geometry", saveGeometry());
+        settings.setValue("splitterState", m_mainSplitter->saveState());
+        settings.setValue("volume", m_volumeSlider->value());
+        settings.setValue("lastPlaylistIndex", m_currentPlaylistIndex);
+        settings.setValue("lastSongIndex", m_currentSongIndex);
+        settings.setValue("inListMode", static_cast<int>(m_inListMode));
+        settings.setValue("crossListMode", static_cast<int>(m_crossListMode));
+        qApp->quit();
+    }); 
 
     m_trayMenu = new QMenu(this);
     
@@ -245,6 +256,7 @@ MainWindow::~MainWindow() {}
 
 void MainWindow::setupUI() {
     setWindowTitle("OldPlayer");
+    resize(360, 840);  // 默认窗口尺寸 9:21 比例（竖向）
     
     m_centralWidget = new QWidget(this);
     setCentralWidget(m_centralWidget);
@@ -526,12 +538,13 @@ void MainWindow::updateCrossListModeButton() {
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (this->isVisible() && m_trayIcon->isVisible()) {
-        // 隐藏主窗口
+        // 隐藏主窗口到托盘，不保存设置（仅在真正退出时保存）
         this->hide();
-        // 忽略关闭事件，这样程序就不会退出
         event->ignore();
+        return;  // 隐藏时直接返回，不保存geometry
     }
-    // 创建 QSettings 对象，它会自动找到我们在 main.cpp 中设置的路径
+    
+    // 只有在真正退出时才保存设置
     QSettings settings;
     
     // 保存窗口的几何信息（位置和大小）
@@ -639,14 +652,21 @@ void MainWindow::updateSongListView() {
     }
 }
 
-// 读取播放列表内所有歌曲的元数据
+// 读取播放列表内所有歌曲的元数据（仅读取未加载的歌曲以提高效率）
 void MainWindow::loadPlaylistMetaData(int playlistIndex) {
     Playlist* playlist = m_playlistManager->getPlaylist(playlistIndex);
     if (!playlist) return;
     
     const QList<Song>& songs = playlist->getSongs();
+    bool hasNewMetaData = false;  // 标记是否有新的元数据被加载
+    
     for (int i = 0; i < songs.size(); ++i) {
         const Song& song = songs[i];
+        
+        // 如果歌曲已有元数据（不是"未知艺术家"），跳过读取
+        if (song.artist != "未知艺术家") {
+            continue;
+        }
         
         // 使用 TagLib 读取文件元数据
         TagLib::FileRef file(song.filePath.toStdWString().c_str());
@@ -671,7 +691,13 @@ void MainWindow::loadPlaylistMetaData(int playlistIndex) {
             
             // 更新歌曲元数据
             playlist->updateSongMetaData(i, title, artist, album);
+            hasNewMetaData = true;
         }
+    }
+    
+    // 如果有新的元数据被加载，保存播放列表以便下次使用
+    if (hasNewMetaData) {
+        m_playlistManager->savePlaylists();
     }
 }
 

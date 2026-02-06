@@ -22,13 +22,13 @@ public:
     void sortPlaylistsByName();
     // 根据指针查找索引（用于排序后恢复状态）
     int getPlaylistIndex(Playlist* playlist);
+    void savePlaylists() const;  // 保存播放列表到配置文件
     
 signals:
     void playlistAdded(int index);
     void playlistRemoved(int index);
     
 private:
-    void savePlaylists() const; // <--- 添加保存函数声明
     void loadPlaylists();       // <--- 添加加载函数声明
 
     QList<Playlist*> m_playlists;
